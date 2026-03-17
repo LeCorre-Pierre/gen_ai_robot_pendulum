@@ -35,7 +35,7 @@
 │  │  • Balance PID       │        │  • Web server     │  │
 │  │  • Moteurs (L298)    │        │  • UART bridge    │  │
 │  │  • Encodeurs (QEI)   │        │  • Logging SD     │  │
-│  │  • MPU6050 (I²C)     │        │                   │  │
+│  │  • ISM330DHCX (I²C)  │        │                   │  │
 │  │  • BLE 5.2           │        │                   │  │
 │  └──────────────────────┘        └───────────────────┘  │
 │           │ BLE 5.2                      │ WiFi 802.11n  │
@@ -89,7 +89,7 @@
 |----|-------------|----------|
 | HW-001 | Le STM32 **doit** générer 2 signaux PWM indépendants pour le contrôle vitesse des moteurs (≥ 1 kHz). | CRITICAL |
 | HW-002 | Le STM32 **doit** décoder 2 encodeurs quadrature en mode QEI hardware (TIM encoder mode). | CRITICAL |
-| HW-003 | Le STM32 **doit** communiquer avec le LSM6DSO onboard via I2C3 (PB13/PB11) en Fast Mode (400 kHz). | CRITICAL |
+| HW-003 | Le STM32 **doit** communiquer avec l'ISM330DHCX onboard via I2C3 (PB13=SCL / PB11=SDA) en Fast Mode (400 kHz), adresse `0x6B`. | CRITICAL |
 | HW-004 | Le STM32 **doit** assurer la communication BLE 5.2 avec l'app smartphone (stack radio sur le core M0+, sans impact sur la boucle RT du M4). | CRITICAL |
 | HW-005 | Le STM32 **doit** disposer d'un UART dédié pour la liaison avec le Raspberry Pi 3B. | HIGH |
 | HW-006 | La boucle de contrôle principale **doit** s'exécuter de façon déterministe à ≥ 200 Hz sur le core M4. | CRITICAL |
@@ -108,17 +108,17 @@
 | HW-013 | Le RPi **ne doit pas** participer à la boucle de contrôle RT ; son rôle est exclusivement la connectivité et la supervision. | CRITICAL |
 | HW-014 | Le RPi **devrait** logger les données de télémétrie sur la carte µSD avec horodatage. | MEDIUM |
 
-### 2.3 IMU — LSM6DSO (onboard MB1292B)
+### 2.3 IMU — ISM330DHCX (onboard MB1292B)
 
-**Capteur retenu :** LSM6DSO — intégré sur le MB1292B, connecté en interne sur I2C3 (PB13=SCL / PB11=SDA). Aucun câblage externe requis. Drivers ST BSP disponibles dans CubeMX.
+**Capteur retenu :** ISM330DHCX — intégré sur le MB1292B, connecté en interne sur I2C3 (PB13=SCL / PB11=SDA), adresse `0x6B`. Aucun câblage externe requis. Driver BSP : `stm32wb5mm_dk_motion_sensors.c` (`USE_MOTION_SENSOR_ISM330DHCX_0`).
 
 | ID | Requirement | Priorité |
 |----|-------------|----------|
 | HW-020 | L'IMU **doit** fournir des données 3-axes accéléromètre et 3-axes gyroscope. | CRITICAL |
-| HW-021 | Le gyroscope **doit** être configuré en pleine échelle ±250 °/s minimum (LSM6DSO : ±125 à ±2000 °/s). | HIGH |
-| HW-022 | L'accéléromètre **doit** être configuré en pleine échelle ±2 g minimum (LSM6DSO : ±2 à ±16 g). | HIGH |
-| HW-023 | L'IMU **doit** être échantillonnée à ≥ 200 Hz, synchrone avec la boucle de contrôle (LSM6DSO ODR max 6664 Hz). | HIGH |
-| HW-024 | Le MB1292B **doit** être monté mécaniquement sur le robot de façon à ce que l'axe de tangage du LSM6DSO soit aligné sur l'axe de rotation. Le remapping d'axes logiciel est accepté si nécessaire. | CRITICAL |
+| HW-021 | Le gyroscope **doit** être configuré en pleine échelle ±250 °/s minimum (ISM330DHCX : ±125 à ±4000 °/s). | HIGH |
+| HW-022 | L'accéléromètre **doit** être configuré en pleine échelle ±2 g minimum (ISM330DHCX : ±2 à ±16 g). | HIGH |
+| HW-023 | L'IMU **doit** être échantillonnée à ≥ 200 Hz, synchrone avec la boucle de contrôle (ISM330DHCX ODR max 6664 Hz). | HIGH |
+| HW-024 | Le MB1292B **doit** être monté mécaniquement sur le robot de façon à ce que l'axe de tangage de l'ISM330DHCX soit aligné sur l'axe de rotation. Le remapping d'axes logiciel est accepté si nécessaire. | CRITICAL |
 
 ### 2.4 Moteurs, Encodeurs et Driver
 
@@ -202,7 +202,7 @@ Batterie 12V Ni-MH
 |----|-------------|----------|
 | FW-040 | Le firmware **doit** couper les moteurs si l'angle de tangage dépasse ±45° (chute irrécupérable). | CRITICAL |
 | FW-041 | Le firmware **doit** implémenter un watchdog hardware ; un blocage de la boucle de contrôle doit déclencher un reset MCU en ≤ 50 ms. | HIGH |
-| FW-042 | Le firmware **doit** désactiver les moteurs en cas d'échec de communication I²C avec le MPU6050 après 3 échantillons consécutifs manqués. | HIGH |
+| FW-042 | Le firmware **doit** désactiver les moteurs en cas d'échec de communication I²C avec l'ISM330DHCX après 3 échantillons consécutifs manqués. | HIGH |
 | FW-043 | La perte de la liaison UART avec le RPi **ne doit pas** perturber la boucle de contrôle ni les commandes BLE. | HIGH |
 
 ---
@@ -284,4 +284,4 @@ Batterie 12V Ni-MH
 | Q6 | ~~Batterie~~ | ✅ 12 V / 3800 mAh Ni-MH, montée en haut du robot |
 | Q7 | Boucle de position (maintien d'une position fixe) requise, ou uniquement balance + conduite ? | **OUVERT** |
 | Q8 | ~~Mapping GPIO STM32WB5MMG ↔ L298~~ | ✅ Voir `3-gpio-mapping.md` |
-| Q9 | ~~IMU onboard vs MPU6050 externe~~ | ✅ LSM6DSO onboard (I2C3, PB13/PB11) — zéro câblage externe, drivers ST BSP |
+| Q9 | ~~IMU onboard vs MPU6050 externe~~ | ✅ ISM330DHCX onboard (I2C3, PB13/PB11, addr `0x6B`) — zéro câblage externe, drivers ST BSP |
