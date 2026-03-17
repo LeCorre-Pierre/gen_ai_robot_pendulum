@@ -1,3 +1,0 @@
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Debug/CMakeFiles/controler.dir
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Debug/CMakeFiles/edit_cache.dir
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Debug/CMakeFiles/rebuild_cache.dir

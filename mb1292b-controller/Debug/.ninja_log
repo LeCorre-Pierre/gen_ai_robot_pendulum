@@ -1,6 +1,0 @@
-# ninja log v5
-24	97	7954858200933904	CMakeFiles/controler.dir/Startup/startup_stm32wb5mmghx.s.obj	c4adb2ce3805835f
-27	106	7954858201029522	CMakeFiles/controler.dir/Sources/main.c.obj	e72e794e563ce2ca
-36	124	7954858201194899	CMakeFiles/controler.dir/Sources/sysmem.c.obj	98f276bd6a82c882
-32	152	7954858201485912	CMakeFiles/controler.dir/Sources/syscalls.c.obj	1e19885f474eba0e
-152	278	7954858202311098	controler.elf	5a37c792504643b6
