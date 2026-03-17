@@ -89,7 +89,7 @@
 |----|-------------|----------|
 | HW-001 | Le STM32 **doit** générer 2 signaux PWM indépendants pour le contrôle vitesse des moteurs (≥ 1 kHz). | CRITICAL |
 | HW-002 | Le STM32 **doit** décoder 2 encodeurs quadrature en mode QEI hardware (TIM encoder mode). | CRITICAL |
-| HW-003 | Le STM32 **doit** communiquer avec le MPU6050 via I²C en Fast Mode (400 kHz). | CRITICAL |
+| HW-003 | Le STM32 **doit** communiquer avec le LSM6DSO onboard via I2C3 (PB13/PB11) en Fast Mode (400 kHz). | CRITICAL |
 | HW-004 | Le STM32 **doit** assurer la communication BLE 5.2 avec l'app smartphone (stack radio sur le core M0+, sans impact sur la boucle RT du M4). | CRITICAL |
 | HW-005 | Le STM32 **doit** disposer d'un UART dédié pour la liaison avec le Raspberry Pi 3B. | HIGH |
 | HW-006 | La boucle de contrôle principale **doit** s'exécuter de façon déterministe à ≥ 200 Hz sur le core M4. | CRITICAL |
@@ -108,15 +108,17 @@
 | HW-013 | Le RPi **ne doit pas** participer à la boucle de contrôle RT ; son rôle est exclusivement la connectivité et la supervision. | CRITICAL |
 | HW-014 | Le RPi **devrait** logger les données de télémétrie sur la carte µSD avec horodatage. | MEDIUM |
 
-### 2.3 IMU — MPU6050
+### 2.3 IMU — LSM6DSO (onboard MB1292B)
+
+**Capteur retenu :** LSM6DSO — intégré sur le MB1292B, connecté en interne sur I2C3 (PB13=SCL / PB11=SDA). Aucun câblage externe requis. Drivers ST BSP disponibles dans CubeMX.
 
 | ID | Requirement | Priorité |
 |----|-------------|----------|
 | HW-020 | L'IMU **doit** fournir des données 3-axes accéléromètre et 3-axes gyroscope. | CRITICAL |
-| HW-021 | Le gyroscope **doit** être configuré en pleine échelle ±250 °/s minimum. | HIGH |
-| HW-022 | L'accéléromètre **doit** être configuré en pleine échelle ±2 g minimum. | HIGH |
-| HW-023 | L'IMU **doit** être échantillonnée à ≥ 200 Hz, synchrone avec la boucle de contrôle. | HIGH |
-| HW-024 | L'IMU **doit** être montée mécaniquement avec son axe de tangage aligné sur l'axe de rotation du robot. | CRITICAL |
+| HW-021 | Le gyroscope **doit** être configuré en pleine échelle ±250 °/s minimum (LSM6DSO : ±125 à ±2000 °/s). | HIGH |
+| HW-022 | L'accéléromètre **doit** être configuré en pleine échelle ±2 g minimum (LSM6DSO : ±2 à ±16 g). | HIGH |
+| HW-023 | L'IMU **doit** être échantillonnée à ≥ 200 Hz, synchrone avec la boucle de contrôle (LSM6DSO ODR max 6664 Hz). | HIGH |
+| HW-024 | Le MB1292B **doit** être monté mécaniquement sur le robot de façon à ce que l'axe de tangage du LSM6DSO soit aligné sur l'axe de rotation. Le remapping d'axes logiciel est accepté si nécessaire. | CRITICAL |
 
 ### 2.4 Moteurs, Encodeurs et Driver
 
@@ -282,3 +284,4 @@ Batterie 12V Ni-MH
 | Q6 | ~~Batterie~~ | ✅ 12 V / 3800 mAh Ni-MH, montée en haut du robot |
 | Q7 | Boucle de position (maintien d'une position fixe) requise, ou uniquement balance + conduite ? | **OUVERT** |
 | Q8 | ~~Mapping GPIO STM32WB5MMG ↔ L298~~ | ✅ Voir `3-gpio-mapping.md` |
+| Q9 | ~~IMU onboard vs MPU6050 externe~~ | ✅ LSM6DSO onboard (I2C3, PB13/PB11) — zéro câblage externe, drivers ST BSP |

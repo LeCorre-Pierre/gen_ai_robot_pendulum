@@ -1,179 +1,204 @@
 # GPIO Mapping — STM32WB5MMG (MB1292B) ↔ Périphériques
 
-**Version:** 0.1 | **Date:** 2026-03-16
-**⚠️ À valider contre le schéma MB1292B (UM2619) avant câblage — certains pins peuvent être occupés par les périphériques onboard du Discovery kit (LCD, capteurs, etc.)**
+**Version:** 0.2 | **Date:** 2026-03-16
+**Source :** Validé contre UM2825 (STM32WB5MM-DK User Manual, Rev 4, April 2025)
 
 ---
 
-## Allocation des périphériques STM32
+## Pins onboard MB1292B — À NE PAS UTILISER
+
+Ces pins sont câblées aux périphériques du Discovery kit. Les réutiliser nécessiterait de dessouder des composants.
+
+| Pin | Usage onboard | Remarque |
+|-----|--------------|---------|
+| PA8 | SAI1_CK2 — microphone numérique | **BLOQUANT** — ne pas utiliser |
+| PA9 | SAI1_DI2 — microphone numérique | **BLOQUANT** — ne pas utiliser |
+| PA7 | SPI1_MOSI — OLED + RGB LED | **BLOQUANT** |
+| PA1 | SPI1_SCK — OLED | **BLOQUANT** |
+| PH0 | SPI1_NSS — OLED chip select | Non accessible |
+| PB9 | QSPI_BK_IO0 — Flash NOR 128 Mbit | **BLOQUANT** |
+| PA3 | QSPI_BK_SCK — Flash NOR | **BLOQUANT** |
+| PD3 | QSPI_BK_NCS — Flash NOR | — |
+| PC8 | RST_DISP — reset OLED | **BLOQUANT** |
+| PC9 | D/C_DISP — data/cmd OLED | **BLOQUANT** |
+| PB13 | I2C3_SCL — LSM6DSO onboard | **UTILISÉ** — IMU balance |
+| PB11 | I2C3_SDA — LSM6DSO onboard | **UTILISÉ** — IMU balance |
+| PC6 | TSC_G4_IO1 — touch sensor | — |
+| PB6 | USART1_TX — ST-Link VCP | Réservé debug |
+| PB7 | USART1_RX — ST-Link VCP | Réservé debug |
+| PA13 | SWDIO — débogage SWD | Réservé debug |
+| PA14 | SWCLK — débogage SWD | Réservé debug |
+| PA11 | USB_DM | — |
+| PA12 | USB_DP | — |
+| PC12 | Bouton utilisateur B1 (WKUP3) | **BLOQUANT** |
+| PC13 | Bouton utilisateur B2 (WKUP2) | — |
+| PB0 / PB1 | Non disponibles sur MB1292B | **BLOQUANT** |
+
+> **Note :** L'IMU onboard (accéléromètre + gyroscope sur I2C3) pourrait remplacer le MPU6050 externe — à évaluer (voir Q9 dans requirements).
+
+---
+
+## Allocation des périphériques STM32 — Mapping corrigé
 
 | Périphérique STM32 | Affectation | Justification |
 |-------------------|-------------|---------------|
-| **TIM1** (avancé) | PWM moteurs A et B | Timer avancé : meilleure résolution, deadtime, complémentaires |
-| **TIM2** (32 bits) | Encodeur moteur A | 32 bits = pas d'overflow sur la durée de session |
-| **TIM3** | Encodeur moteur B | Mode encoder hardware, 16 bits suffisant |
-| **I2C1** | MPU6050 | Fast Mode 400 kHz |
-| **LPUART1** | Liaison UART → RPi 3B | Basse consommation, pins PA2/PA3 libres |
-| **ADC1** | Tension batterie + courant moteurs (optionnel) | Canaux IN5, IN6, IN14 |
+| **TIM1** | PWM moteurs A et B | CH1=PD14 (D3), CH2=PD15 (D9) — confirmés dans UM2825 |
+| **TIM2** | Encodeur moteur A (32 bits) | CH1=PA15, CH2=PB3 — pas de conflit onboard |
+| **TIM3** | Encodeur moteur B | CH1=PB4 (D12), CH2=PC7 — pas de conflit onboard |
+| **I2C3** | LSM6DSO onboard | SCL=PB13, SDA=PB11 — câblage interne MB1292B, drivers ST BSP |
+| **LPUART1** | Liaison UART → RPi 3B | TX=PB5 (D1), RX=PC0 (D0) — confirmés dans UM2825 |
+| **ADC1** | Tension batterie + courant moteurs | PA2 (A1), PA5 (A2), PC3 (A0) |
 
 ---
 
-## Table de mapping GPIO complète
+## Table de mapping GPIO complète — Version validée
 
 ### Moteurs — Driver L298 (Arduino Motor Shield)
 
-| Fonction | Signal L298 | Pin STM32 | Mode | Alternate Function | Notes |
-|----------|------------|-----------|------|--------------------|-------|
-| Vitesse moteur A | ENA (PWM) | **PA8** | AF | TIM1_CH1 — AF1 | PWM ≥ 1 kHz |
-| Vitesse moteur B | ENB (PWM) | **PA9** | AF | TIM1_CH2 — AF1 | PWM ≥ 1 kHz |
-| Direction A avant | IN1 | **PB0** | GPIO Output | — | HIGH = avant |
-| Direction A arrière | IN2 | **PB1** | GPIO Output | — | HIGH = arrière |
-| Direction B avant | IN3 | **PC4** | GPIO Output | — | HIGH = avant |
-| Direction B arrière | IN4 | **PC5** | GPIO Output | — | HIGH = arrière |
-| Frein moteur A | BRAKE_A | **PC8** | GPIO Output | — | LOW = roue libre |
-| Frein moteur B | BRAKE_B | **PC9** | GPIO Output | — | LOW = roue libre |
-| Courant moteur A | CS_A | **PA5** | Analog | ADC1_IN10 — AF | Optionnel |
-| Courant moteur B | CS_B | **PA4** | Analog | ADC1_IN9 — AF | Optionnel |
+| Fonction | Signal Motor Shield | Pin STM32 | Arduino | Mode | Notes |
+|----------|--------------------|-----------|---------|----- |-------|
+| PWM vitesse moteur A | PWMA | **PD14** | D3 | TIM1_CH1 AF1 | Fréq ≥ 1 kHz |
+| PWM vitesse moteur B | PWMB | **PD15** | D9 | TIM1_CH2 AF1 | Fréq ≥ 1 kHz |
+| Direction moteur A | DIRA | **PD12** | D2 | GPIO Output | 1=avant, 0=arrière |
+| Frein moteur A | BRAKEA | **PD13** | D8 | GPIO Output | 0=roue libre |
+| Direction moteur B | DIRB | **PE4** | D4 | GPIO Output | 1=avant, 0=arrière |
+| Frein moteur B | BRAKEB | **PE0** | D6 | GPIO Output | 0=roue libre |
+| Courant moteur A | CS_A | **PA5** | A2 | ADC1_IN10 | Optionnel |
+| Courant moteur B | CS_B | **PC3** | A0 | ADC1_IN4 | Optionnel |
 
-**Logique de commande moteur A (IN1 / IN2 / ENA) :**
+**Logique de commande L298 par le Motor Shield (1 pin DIR par moteur) :**
 
-| Action | IN1 | IN2 | ENA |
-|--------|-----|-----|-----|
-| Avant | 1 | 0 | PWM |
-| Arrière | 0 | 1 | PWM |
-| Roue libre | 0 | 0 | 0 |
-| Frein rapide | 1 | 1 | 1 |
+| Action | DIRA / DIRB | PWM | BRAKE |
+|--------|------------|-----|-------|
+| Avant | HIGH | duty% | LOW |
+| Arrière | LOW | duty% | LOW |
+| Roue libre | X | 0 | LOW |
+| Frein rapide | X | X | HIGH |
 
 ---
 
 ### Encodeurs quadrature (mode QEI hardware)
 
-| Fonction | Signal | Pin STM32 | Mode | Alternate Function | Notes |
-|----------|--------|-----------|------|--------------------|-------|
-| Encodeur A — Phase A | ENC_A_CHA | **PA15** | AF | TIM2_CH1 — AF1 | Pull-up interne activé |
-| Encodeur A — Phase B | ENC_A_CHB | **PB3** | AF | TIM2_CH2 — AF1 | Pull-up interne activé |
-| Encodeur B — Phase A | ENC_B_CHA | **PA6** | AF | TIM3_CH1 — AF2 | Pull-up interne activé |
-| Encodeur B — Phase B | ENC_B_CHB | **PA7** | AF | TIM3_CH2 — AF2 | Pull-up interne activé |
+| Fonction | Signal | Pin STM32 | Arduino / Conn. | Mode | Notes |
+|----------|--------|-----------|-----------------|------|-------|
+| Encodeur A — Phase A | ENC_A_CHA | **PA15** | STMod+ pin 14 | TIM2_CH1 AF1 | Pull-up interne |
+| Encodeur A — Phase B | ENC_A_CHB | **PB3** | — | TIM2_CH2 AF1 | ⚠️ SWO — désactiver en Release |
+| Encodeur B — Phase A | ENC_B_CHA | **PB4** | D12 | TIM3_CH1 AF2 | SPI1_MISO — OLED write-only, pin libre |
+| Encodeur B — Phase B | ENC_B_CHB | **PC7** | — | TIM3_CH2 AF2 | TSC non utilisé → pin libre |
 
 **Configuration TIM2 / TIM3 :**
-- Mode : `TIM_ENCODERMODE_TI12` (comptage sur les deux fronts, ×4)
-- Résolution effective : 64 CPR × 4 × 29 = **7424 ticks/tour**
-- TIM2 (32 bits) : compteur signé, range ±2 147 483 648 — débordement impossible
-- TIM3 (16 bits) : lire et accumuler dans un int32 logiciel à chaque cycle
+- Mode : `TIM_ENCODERMODE_TI12` — comptage sur les deux fronts (×4)
+- Résolution : 64 CPR × 4 × 29 = **7 424 ticks/tour**
+- TIM2 (32 bits) : compteur signé ±2 147 483 648 — overflow impossible en session
+- TIM3 (16 bits) : accumulation dans un `int32_t` logiciel à chaque cycle de contrôle
 
 ---
 
-### IMU — MPU6050
+### IMU — LSM6DSO (onboard MB1292B)
 
-| Fonction | Signal | Pin STM32 | Mode | Alternate Function | Notes |
-|----------|--------|-----------|------|--------------------|-------|
-| Horloge I²C | SCL | **PB8** | AF | I2C1_SCL — AF4 | Pull-up 4.7 kΩ externe |
-| Données I²C | SDA | **PB9** | AF | I2C1_SDA — AF4 | Pull-up 4.7 kΩ externe |
-| Interruption data-ready | INT | **PC12** | GPIO EXTI | — | EXTI12, front montant |
+Le LSM6DSO est câblé en interne sur le MB1292B. Aucun fil externe requis.
 
-**Adresse I²C :** `0x68` (AD0 à GND) ou `0x69` (AD0 à VCC)
+| Fonction | Signal | Pin STM32 | Mode | Notes |
+|----------|--------|-----------|------|-------|
+| Horloge I²C | SCL | **PB13** | I2C3_SCL AF4 | Câblage interne DK — pull-up onboard |
+| Données I²C | SDA | **PB11** | I2C3_SDA AF4 | Câblage interne DK — pull-up onboard |
+| Interruption data-ready | INT1 | **PB5** ou non câblé | GPIO EXTI | À vérifier dans schéma MB1292B — polling en fallback |
+
+**Adresse I²C LSM6DSO :** `0x6A` (AD0=GND, défaut MB1292B)
+**Driver :** utiliser le BSP `stm32wb5mm_dk_motion_sensors.c` ou le driver ST `lsm6dso_reg.c` via CubeMX.
+**Pins libérées :** PB8 (D15), PA10 (D14), PB2 (D7) — disponibles pour usage futur.
 
 ---
 
 ### Liaison UART — Raspberry Pi 3B
 
-| Fonction | Signal | Pin STM32 | Mode | Alternate Function | Côté RPi |
-|----------|--------|-----------|------|--------------------|----------|
-| Émission STM→RPi | TX | **PA2** | AF | LPUART1_TX — AF8 | GPIO15 (RXD) — pin 10 |
-| Réception RPi→STM | RX | **PA3** | AF | LPUART1_RX — AF8 | GPIO14 (TXD) — pin 8 |
+| Fonction | Signal | Pin STM32 | Arduino | Mode | Côté RPi |
+|----------|--------|-----------|---------|------|----------|
+| Émission STM→RPi | TX | **PB5** | D1 | LPUART1_TX AF8 | GPIO15 (RXD) — pin 10 |
+| Réception RPi→STM | RX | **PC0** | D0 | LPUART1_RX AF8 | GPIO14 (TXD) — pin 8 |
+| Masse commune | GND | GND | — | — | Pin 6 ou 14 |
 
-**⚠️ Niveaux logiques :** STM32 = 3,3 V / RPi = 3,3 V → **compatibles directement, pas de level shifter requis.**
+**Niveaux logiques :** STM32 = 3,3 V / RPi GPIO = 3,3 V → **compatibles directement.**
 **Vitesse :** 115 200 baud, 8N1
-**GND commun obligatoire** entre les deux cartes.
 
----
-
-### Surveillance batterie
-
-| Fonction | Signal | Pin STM32 | Mode | Notes |
-|----------|--------|-----------|------|-------|
-| Tension batterie | VBAT_MON | **PA0** | Analog ADC1_IN5 | Diviseur résistif : 100 kΩ / 22 kΩ → 12 V mappe sur ~2,16 V (< 3,3 V) |
-
-**Formule :** `V_bat = ADC_value × (3.3 / 4095) × (100 + 22) / 22`
-
----
-
-## Récapitulatif des pins utilisés
-
-```
-PA0  — ADC (tension batterie)
-PA2  — LPUART1_TX (→ RPi)
-PA3  — LPUART1_RX (← RPi)
-PA4  — ADC (courant moteur B, optionnel)
-PA5  — ADC (courant moteur A, optionnel)
-PA6  — TIM3_CH1 (encodeur B phase A)
-PA7  — TIM3_CH2 (encodeur B phase B)
-PA8  — TIM1_CH1 (PWM moteur A)
-PA9  — TIM1_CH2 (PWM moteur B)
-PA15 — TIM2_CH1 (encodeur A phase A)
-PB0  — GPIO (IN1 moteur A)
-PB1  — GPIO (IN2 moteur A)
-PB3  — TIM2_CH2 (encodeur A phase B)
-PB8  — I2C1_SCL (MPU6050)
-PB9  — I2C1_SDA (MPU6050)
-PC4  — GPIO (IN3 moteur B)
-PC5  — GPIO (IN4 moteur B)
-PC8  — GPIO (BRAKE moteur A)
-PC9  — GPIO (BRAKE moteur B)
-PC12 — GPIO EXTI (MPU6050 INT)
-```
-
----
-
-## Connexion au Raspberry Pi 3B
-
-| RPi Header Pin | RPi Signal | ←→ | STM32 Pin | Fonction |
-|----------------|------------|-----|-----------|---------|
-| Pin 8 | GPIO14 (TXD) | → | PA3 (RX) | RPi envoie → STM32 reçoit |
-| Pin 10 | GPIO15 (RXD) | ← | PA2 (TX) | STM32 envoie → RPi reçoit |
-| Pin 6 | GND | — | GND | Masse commune |
-
-**Activation UART matériel RPi :** désactiver la console série et activer `uart0` dans `/boot/config.txt` :
+**Configuration RPi (/boot/firmware/config.txt) :**
 ```
 enable_uart=1
-dtoverlay=disable-bt   # libère /dev/ttyAMA0 du Bluetooth interne
+dtoverlay=disable-bt
+```
+Et dans `/boot/firmware/cmdline.txt` : supprimer `console=serial0,115200`
+
+---
+
+### Surveillance tension batterie
+
+| Fonction | Signal | Pin STM32 | Arduino | Mode | Notes |
+|----------|--------|-----------|---------|------|-------|
+| Tension batterie | VBAT_MON | **PA2** | A1 | ADC1_IN7 | Diviseur 100 kΩ / 22 kΩ |
+
+**Formule :** `V_bat = (ADC / 4095.0) × 3.3 × (100 + 22) / 22`
+Plage : 10 V → ADC ≈ 1 800 | 14 V → ADC ≈ 2 520
+
+---
+
+## Récapitulatif final — Tous les pins utilisés
+
+```
+PA2  ─── ADC1_IN7       (surveillance batterie)
+PA5  ─── ADC1_IN10      (courant moteur A, optionnel)
+PA15 ─── TIM2_CH1       (encodeur A phase A)
+
+PB3  ─── TIM2_CH2       (encodeur A phase B) ⚠️ SWO release only
+PB4  ─── TIM3_CH1       (encodeur B phase A)
+PB5  ─── LPUART1_TX     (→ RPi)
+PB11 ─── I2C3_SDA       (LSM6DSO onboard — interne)
+PB13 ─── I2C3_SCL       (LSM6DSO onboard — interne)
+
+PC0  ─── LPUART1_RX     (← RPi)
+PC3  ─── ADC1_IN4       (courant moteur B, optionnel)
+PC7  ─── TIM3_CH2       (encodeur B phase B)
+
+PD12 ─── GPIO Output    (direction moteur A)
+PD13 ─── GPIO Output    (frein moteur A)
+PD14 ─── TIM1_CH1       (PWM moteur A)
+PD15 ─── TIM1_CH2       (PWM moteur B)
+
+PE0  ─── GPIO Output    (frein moteur B)
+PE4  ─── GPIO Output    (direction moteur B)
+
+-- Pins libérées (ex-MPU6050 externe) --
+PA10 ─── libre (ex I2C1_SDA)
+PB2  ─── libre (ex MPU6050 INT)
+PB8  ─── libre (ex I2C1_SCL)
 ```
 
 ---
 
-## Notes de câblage avec l'Arduino Motor Shield
+## Points d'attention avant câblage
 
-Le Motor Shield est conçu pour se clipser sur un Arduino Uno. Ici on câble manuellement ses broches de contrôle vers le STM32.
-
-**Broches utiles sur le Motor Shield (côté Arduino header) :**
-
-| Motor Shield | Arduino pin | Connecter à |
-|-------------|------------|-------------|
-| PWMA | D3 | PA8 (STM32) |
-| DIRA | D12 | PB0 (STM32) |
-| BRAKEA | D9 | PC8 (STM32) |
-| PWMB | D11 | PA9 (STM32) |
-| DIRB | D13 | PC4 (STM32) |
-| BRAKEB | D8 | PC9 (STM32) |
-| CS_A | A0 | PA5 (STM32) |
-| CS_B | A1 | PA4 (STM32) |
-| 5V | 5V | Rail 5V régulé |
-| GND | GND | GND commun |
-| Vin | — | 12V batterie directement |
-
-**Remarque IN1/IN2 :** Le Motor Shield simplifie le L298 avec une logique DIR unique (1 seul signal de direction). En interne, il câble IN1 = DIR et IN2 = ~DIR. On n'a donc besoin que de PB0 pour DIR_A et PC4 pour DIR_B, pas de IN2/IN4 séparés — PB1 et PC5 peuvent être réservés ou ignorés selon la version du shield.
+| # | Point | Action |
+|---|-------|--------|
+| 1 | **PB3 = SWO (debug trace)** | Fonctionnel en Release. En Debug, désactiver le tracé SWO dans CubeIDE ou choisir un autre pin |
+| 2 | **PB4 = SPI1_MISO** | L'OLED est en mode write-only (pas de lecture) → MISO non utilisé → pin libre ✅ |
+| 3 | **PC7 = TSC touch** | Le Touch Sense Controller n'est pas activé → PC7 libre ✅ |
+| 4 | **PA15 = STMod+ pin 14** | Accessible via le connecteur STMod+ ou un fil soudé |
+| 5 | **I2C3 — LSM6DSO** | PB13/PB11 câblés en interne sur le DK. Activer I2C3 dans CubeMX, utiliser driver BSP ST. Adresse `0x6A`. ✅ |
+| 6 | **Pins libérées** | PB8, PA10, PB2 (ex-MPU6050) sont libres pour usage futur si besoin. |
 
 ---
 
-## Conflits potentiels à vérifier sur MB1292B
+## Câblage Motor Shield → STM32 (manuel, fils volants)
 
-| Pin | Usage proposé | Risque de conflit avec le Discovery kit |
-|-----|---------------|----------------------------------------|
-| PA8 | TIM1_CH1 PWM | Vérifier : LCD SPI ou LED onboard ? |
-| PA9 | TIM1_CH2 PWM | Vérifier : connecteur CN |
-| PB8 / PB9 | I2C1 | Vérifier : I2C onboard capteurs Discovery |
-| PC8 / PC9 | GPIO | Vérifier : LED verte/orange du Discovery |
-| PA15 | TIM2_CH1 | Vérifier : JTDI (debug) — désactiver en release |
-| PB3 | TIM2_CH2 | Vérifier : JTDO/SWO (debug) — désactiver en release |
-
-**Action requise :** consulter le schéma électrique MB1292B (document UM2619, disponible sur st.com) pour confirmer la disponibilité de chaque pin sur le connecteur d'extension avant câblage.
+| Motor Shield header | Arduino pin | Connecter au pin STM32 |
+|--------------------|-----------|-----------------------|
+| PWMA | D3 | PD14 (D3 Arduino MB1292B) |
+| DIRA | D12 | PD12 (D2 Arduino MB1292B) |
+| BRAKEA | D9 | PD13 (D8 Arduino MB1292B) |
+| PWMB | D11 | PD15 (D9 Arduino MB1292B) |
+| DIRB | D13 | PE4 (D4 Arduino MB1292B) |
+| BRAKEB | D8 | PE0 (D6 Arduino MB1292B) |
+| CS_A | A0 | PA5 (A2 Arduino MB1292B) |
+| CS_B | A1 | PC3 (A0 Arduino MB1292B) |
+| VCC (5V logique) | 5V | Rail 5V buck converter |
+| GND | GND | GND commun |
+| Vin (moteurs) | — | 12V batterie directement |
