@@ -1,0 +1,6 @@
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motenv_server_app.c:80:6:MOTENV_STM_App_Notification	11
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motenv_server_app.c:171:6:MOTENV_APP_HandleDisconnection	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motenv_server_app.c:187:6:MOTENV_APP_Init	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motenv_server_app.c:219:13:MOTENV_AccGyroMagUpdate_Timer_Callback	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motenv_server_app.c:230:13:MOTENV_EnvUpdate_Timer_Callback	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motenv_server_app.c:240:13:MOTENV_APP_context_Init	1

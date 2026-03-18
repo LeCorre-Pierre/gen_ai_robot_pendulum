@@ -1,0 +1,6 @@
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/env_server_app.c:81:6:ENV_Context_Init	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/env_server_app.c:100:6:ENV_Set_Notification_Status	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/env_server_app.c:110:6:ENV_Send_Notification_Task	4
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/env_server_app.c:136:6:ENV_Update	2
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/env_server_app.c:165:13:ENV_Handle_Sensor	2
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/env_server_app.c:192:13:EnvSensor_GetCaps	5

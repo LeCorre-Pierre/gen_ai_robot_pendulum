@@ -1,0 +1,6 @@
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/p2p_server_app.c:86:6:P2PS_STM_App_Notification	11
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/p2p_server_app.c:283:6:P2PS_APP_Notification	3
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/p2p_server_app.c:317:6:P2PS_APP_Init	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/p2p_server_app.c:332:6:P2PS_APP_LED_BUTTON_context_Init	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/p2p_server_app.c:374:6:P2PS_APP_SW1_Button_Action	1
+C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/p2p_server_app.c:388:6:P2PS_Send_Notification	3

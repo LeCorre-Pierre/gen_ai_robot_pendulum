@@ -1,0 +1,10 @@
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:86:9:BSP_ENV_SENSOR_Init	48	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:151:9:BSP_ENV_SENSOR_DeInit	24	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:177:9:BSP_ENV_SENSOR_GetCapabilities	24	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:203:9:BSP_ENV_SENSOR_ReadID	24	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:231:9:BSP_ENV_SENSOR_Enable	24	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:269:9:BSP_ENV_SENSOR_Disable	24	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:308:9:BSP_ENV_SENSOR_GetOutputDataRate	32	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:347:9:BSP_ENV_SENSOR_SetOutputDataRate	32	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:386:9:BSP_ENV_SENSOR_GetValue	32	static
+C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.c:431:16:STTS22H_0_Probe	72	static
