@@ -1,0 +1,15 @@
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:57:9:BSP_ENV_SENSOR_Get_DRDY_Status	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:99:9:BSP_ENV_SENSOR_Read_Register	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:134:9:BSP_ENV_SENSOR_Write_Register	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:168:9:BSP_ENV_SENSOR_FIFO_Get_Data	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:194:9:BSP_ENV_SENSOR_FIFO_Get_Fth_Status	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:220:9:BSP_ENV_SENSOR_FIFO_Get_Full_Status	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:246:9:BSP_ENV_SENSOR_FIFO_Get_Num_Samples	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:272:9:BSP_ENV_SENSOR_FIFO_Get_Ovr_Status	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:298:9:BSP_ENV_SENSOR_FIFO_Reset_Interrupt	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:324:9:BSP_ENV_SENSOR_FIFO_Set_Interrupt	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:350:9:BSP_ENV_SENSOR_FIFO_Set_Mode	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:376:9:BSP_ENV_SENSOR_FIFO_Set_Watermark_Level	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:402:9:BSP_ENV_SENSOR_FIFO_Stop_On_Watermark	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:428:9:BSP_ENV_SENSOR_Set_One_Shot	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors_ex.c:462:9:BSP_ENV_SENSOR_Get_One_Shot_Status	3

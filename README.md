@@ -44,3 +44,28 @@ Accelerometer
 
 - MPU6050
 
+Organization of the directories
+
+## "parts"
+Contains the specifications of all the parts of the project
+
+## mb1292b-controller
+Contrains the project running on the MB1292B STM32WB5M development kit.
+It is based on STM32CubeIDE.
+
+To build the MB1292B project, you must be located under the directory:
+/d/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32CubeIDE/Debug
+and run the command "make -j16 all"
+To clean the project: "make -j16 clean"
+
+## Git Bash helpers
+
+What to use them for:
+
+- `cproj`: go back to the project root
+- `cparts`: open the hardware notes in `parts/`
+- `cmcu`: jump to the firmware project root
+- `mbuild`: compile the STM32 firmware
+- `mclean`: remove build artifacts
+- `mrebuild`: clean and rebuild in one step
+

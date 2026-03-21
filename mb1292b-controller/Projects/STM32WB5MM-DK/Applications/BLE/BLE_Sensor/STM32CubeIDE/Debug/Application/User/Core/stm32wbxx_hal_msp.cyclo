@@ -1,0 +1,16 @@
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rcc.h:2883:22:LL_RCC_EnableRTC	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rcc.h:2893:22:LL_RCC_DisableRTC	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:539:22:LL_AHB2_GRP1_EnableClock	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:744:22:LL_AHB3_GRP1_EnableClock	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:798:22:LL_AHB3_GRP1_DisableClock	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:939:22:LL_APB1_GRP1_EnableClock	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:1038:22:LL_APB1_GRP1_DisableClock	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:1274:22:LL_APB2_GRP1_EnableClock	1
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:1328:22:LL_APB2_GRP1_DisableClock	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:64:6:HAL_MspInit	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:91:6:HAL_IPCC_MspInit	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:113:6:HAL_IPCC_MspDeInit	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:135:6:HAL_RTC_MspInit	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:169:6:HAL_RTC_MspDeInit	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:192:6:HAL_UART_MspInit	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:260:6:HAL_UART_MspDeInit	2

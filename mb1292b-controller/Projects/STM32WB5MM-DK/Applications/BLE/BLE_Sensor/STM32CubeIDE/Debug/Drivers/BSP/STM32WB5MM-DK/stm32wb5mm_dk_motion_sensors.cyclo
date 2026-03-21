@@ -1,0 +1,14 @@
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:86:9:BSP_MOTION_SENSOR_Init	12
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:151:9:BSP_MOTION_SENSOR_DeInit	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:177:9:BSP_MOTION_SENSOR_GetCapabilities	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:203:9:BSP_MOTION_SENSOR_ReadID	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:231:9:BSP_MOTION_SENSOR_Enable	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:269:9:BSP_MOTION_SENSOR_Disable	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:308:9:BSP_MOTION_SENSOR_GetAxes	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:347:9:BSP_MOTION_SENSOR_GetAxesRaw	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:386:9:BSP_MOTION_SENSOR_GetSensitivity	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:426:9:BSP_MOTION_SENSOR_GetOutputDataRate	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:465:9:BSP_MOTION_SENSOR_GetFullScale	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:505:9:BSP_MOTION_SENSOR_SetOutputDataRate	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:544:9:BSP_MOTION_SENSOR_SetFullScale	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.c:588:16:ISM330DHCX_0_Probe	14
