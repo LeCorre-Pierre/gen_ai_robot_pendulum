@@ -11,7 +11,9 @@
       "WebFetch(domain:wiki.seeedstudio.com)",
       "WebFetch(domain:files.seeedstudio.com)",
       "WebFetch(domain:www.st.com)",
-      "WebFetch(domain:docs.arduino.cc)"
+      "WebFetch(domain:docs.arduino.cc)",
+      "Bash(source ~/.bashrc)",
+      "Bash(mrebuild)"
     ]
   }
 }

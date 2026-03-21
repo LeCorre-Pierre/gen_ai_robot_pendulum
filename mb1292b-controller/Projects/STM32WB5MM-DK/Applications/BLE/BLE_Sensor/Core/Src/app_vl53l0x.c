@@ -25,6 +25,7 @@
 #include "stm32wb5mm_dk_lcd.h"
 #include "stm32_lcd.h"
 #include "stm32wb5mm_dk_bus.h"
+#include "stm32wb5mm_dk_motion_sensors.h"
 
 /* Private defines -----------------------------------------------------------*/ 
 #define PROXIMITY_UPDATE_PERIOD       (uint32_t)(0.5*1000*1000/CFG_TS_TICK_VAL) /*500ms*/
@@ -137,34 +138,25 @@ uint16_t VL53L0X_PROXIMITY_GetDistance(void)
   * @retval None
   */
 void VL53L0X_PROXIMITY_PrintValue(void){
-  char distLine[20];
-  char statusLine[20];
-  uint16_t prox_value = VL53L0X_PROXIMITY_GetDistance();
+  MOTION_SENSOR_Axes_t acc, gyro;
+  char line[32];
 
-  /* Effacement de la zone dynamique (sous l'entete fixe) */
-  BSP_LCD_FillRect(0, 0, 32, 128, 32, SSD1315_COLOR_BLACK);
+  BSP_MOTION_SENSOR_GetAxes(MOTION_SENSOR_ISM330DHCX_0, MOTION_ACCELERO, &acc);
+  BSP_MOTION_SENSOR_GetAxes(MOTION_SENSOR_ISM330DHCX_0, MOTION_GYRO,     &gyro);
 
+  BSP_LCD_Clear(0, SSD1315_COLOR_BLACK);
   UTIL_LCD_SetFont(&Font12);
 
-  if(prox_value < DISTANCE_MAX_PROXIMITY){
-    uint16_t distance = prox_value / 10;
-    sprintf(distLine, "  Distance: %3d cm", distance);
+  UTIL_LCD_DisplayStringAt(0, 2,  (uint8_t *)"-- IMU Monitor --", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, 16, (uint8_t *)"Acc (mg):",        LEFT_MODE);
+  snprintf(line, sizeof(line), "%5d|%5d|%5d", (int)acc.x, (int)acc.y, (int)acc.z);
+  UTIL_LCD_DisplayStringAt(0, 28, (uint8_t *)line, LEFT_MODE);
 
-    if(distance <= 30){
-      /* Zone 0-30 cm : tres proche, attention */
-      strcpy(statusLine, " !! TRES PROCHE !!");
-    } else {
-      /* Zone 31-199 cm : distance normale */
-      strcpy(statusLine, "    -- OK :) --   ");
-    }
-  } else {
-    /* Zone > 200 cm : hors de portee */
-    strcpy(distLine,   "  Distance > 200cm");
-    strcpy(statusLine, "  ...Trop loin... ");
-  }
+  UTIL_LCD_DisplayStringAt(0, 40, (uint8_t *)"Gyro (dps):",      LEFT_MODE);
+  snprintf(line, sizeof(line), "%5d|%5d|%5d",
+           (int)(gyro.x / 1000), (int)(gyro.y / 1000), (int)(gyro.z / 1000));
+  UTIL_LCD_DisplayStringAt(0, 52, (uint8_t *)line, LEFT_MODE);
 
-  UTIL_LCD_DisplayStringAt(0, 32, (uint8_t *)distLine,   LEFT_MODE);
-  UTIL_LCD_DisplayStringAt(0, 47, (uint8_t *)statusLine, LEFT_MODE);
   BSP_LCD_Refresh(0);
 }
 

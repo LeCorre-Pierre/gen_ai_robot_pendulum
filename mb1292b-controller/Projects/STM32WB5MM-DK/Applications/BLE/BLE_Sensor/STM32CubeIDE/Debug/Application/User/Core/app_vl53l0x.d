@@ -81,7 +81,11 @@ Application/User/Core/app_vl53l0x.o: \
  ../../../../../../../Utilities/LCD/stm32_lcd.h \
  ../../../../../../../Utilities/LCD/../Fonts/fonts.h \
  ../../../../../../../Drivers/BSP/Components/Common/lcd.h \
- ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.h
+ ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.h \
+ ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.h \
+ ../../../../../../../Drivers/BSP/Components/Common/motion_sensor.h \
+ ../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx.h \
+ ../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx_reg.h
 ../../Core/Inc/app_vl53l0x.h:
 ../../Core/Src/vl53l0x/vl53l0x_def.h:
 ../../Core/Src/vl53l0x/vl53l0x_device.h:
@@ -167,3 +171,7 @@ Application/User/Core/app_vl53l0x.o: \
 ../../../../../../../Utilities/LCD/../Fonts/fonts.h:
 ../../../../../../../Drivers/BSP/Components/Common/lcd.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.h:
+../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.h:
+../../../../../../../Drivers/BSP/Components/Common/motion_sensor.h:
+../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx.h:
+../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx_reg.h:
