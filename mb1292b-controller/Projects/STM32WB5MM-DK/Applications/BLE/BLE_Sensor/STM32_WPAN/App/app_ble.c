@@ -817,6 +817,7 @@ APP_BLE_ConnStatus_t APP_BLE_Get_Server_Connection_Status(void)
 /* USER CODE BEGIN FD*/
 void APP_BLE_Key_Button1_Action(void)
 {
+  VL53L0X_NextScreen();
   P2PS_APP_SW1_Button_Action();
 }
 /* USER CODE END FD*/

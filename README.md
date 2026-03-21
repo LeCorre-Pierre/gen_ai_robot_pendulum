@@ -58,6 +58,30 @@ To build the MB1292B project, you must be located under the directory:
 and run the command "make -j16 all"
 To clean the project: "make -j16 clean"
 
+## Control implementation
+
+The selected control architecture for the self-balancing robot is a cascade PID:
+
+- outer loop: wheel velocity to target pitch angle
+- inner loop: pitch angle to normalized motor command
+- optional yaw loop: differential left/right correction
+
+Local control modules are stored under:
+
+- `mb1292b-controller/Utilities/Control`
+
+The following external implementations were evaluated as references and tracked under:
+
+- `mb1292b-controller/Utilities/ExternalControlRefs`
+
+The project already contains `CMSIS` locally under `mb1292b-controller/Drivers/CMSIS`, which is one of the most mainstream embedded foundations for control code on Cortex-M.
+
+## ST-Link PC interface
+
+The dedicated wired debug / tuning / bring-up interface specification for the future PC GUI is documented in:
+
+- `4-stlink-vcp-interface.md`
+
 ## Git Bash helpers
 
 What to use them for:

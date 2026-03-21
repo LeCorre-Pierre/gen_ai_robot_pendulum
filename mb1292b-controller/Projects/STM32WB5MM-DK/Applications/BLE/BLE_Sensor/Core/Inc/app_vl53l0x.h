@@ -36,5 +36,6 @@ uint16_t VL53L0X_PROXIMITY_GetDistance(void);
 void VL53L0X_PROXIMITY_PrintValue(void);
 void VL53L0X_Start_Measure(void);
 void VL53L0X_Stop_Measure(void);
+void VL53L0X_NextScreen(void);   /* Cycle écran : distance → IMU brut → AHRS fusion */
 #endif /* __APP_VL53L0X_H */
 
