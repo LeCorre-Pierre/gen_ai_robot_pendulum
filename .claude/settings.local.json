@@ -3,7 +3,10 @@
     "allow": [
       "WebFetch(domain:github.com)",
       "WebSearch",
-      "WebFetch(domain:www.manualslib.com)"
+      "WebFetch(domain:www.manualslib.com)",
+      "Bash(ls \"D:\\\\Projects\\\\gen_ai_robot_pendulum\\\\BLE_Sensor\"\" && echo \"---\" && ls \"D:Projectsgen_ai_robot_pendulumBLE_SensorDebug\"\")",
+      "Read(//c/ST/STM32CubeWB//**)",
+      "Read(//c/ST//**)"
     ]
   }
 }

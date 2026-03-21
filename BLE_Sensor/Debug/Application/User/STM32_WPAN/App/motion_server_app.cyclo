@@ -1,5 +1,0 @@
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motion_server_app.c:75:6:MOTION_Context_Init	1
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motion_server_app.c:93:6:MOTION_Set_Notification_Status	2
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motion_server_app.c:108:6:MOTION_Send_Notification_Task	6
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motion_server_app.c:161:13:MOTION_Handle_Sensor	5
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/motion_server_app.c:223:13:MOTION_GetCaps	4

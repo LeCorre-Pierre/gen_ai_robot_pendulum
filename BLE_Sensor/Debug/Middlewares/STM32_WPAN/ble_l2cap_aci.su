@@ -1,9 +1,0 @@
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:20:12:aci_l2cap_connection_parameter_update_req	320	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:54:12:aci_l2cap_connection_parameter_update_resp	320	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:99:12:aci_l2cap_coc_connect	320	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:135:12:aci_l2cap_coc_connect_confirm	568	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:178:12:aci_l2cap_coc_reconf	320	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:211:12:aci_l2cap_coc_reconf_confirm	312	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:235:12:aci_l2cap_coc_disconnect	312	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:256:12:aci_l2cap_coc_flow_control	312	static
-C:/ST/STM32CubeWB/Middlewares/ST/STM32_WPAN/ble/core/auto/ble_l2cap_aci.c:280:12:aci_l2cap_coc_tx_data	312	static

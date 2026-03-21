@@ -1,3 +1,0 @@
-C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors_ex.c:58:9:BSP_MOTION_SENSOR_Get_DRDY_Status	32	static
-C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors_ex.c:110:9:BSP_MOTION_SENSOR_Read_Register	32	static
-C:/ST/STM32CubeWB/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors_ex.c:144:9:BSP_MOTION_SENSOR_Write_Register	24	static

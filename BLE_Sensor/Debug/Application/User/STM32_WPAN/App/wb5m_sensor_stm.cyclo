@@ -1,4 +1,0 @@
-../../../../../../../Middlewares/ST/STM32_WPAN/ble/core/ble_legacy.h:322:12:aci_gatt_allow_read	1
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/wb5m_sensor_stm.c:84:30:Motenv_Event_Handler	9
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/wb5m_sensor_stm.c:203:6:MOTENV_STM_Init	1
-C:/ST/STM32CubeWB/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/wb5m_sensor_stm.c:259:12:MOTENV_STM_App_Update_Char	3
