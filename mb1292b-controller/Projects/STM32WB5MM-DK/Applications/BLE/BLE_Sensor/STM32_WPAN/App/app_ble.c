@@ -557,11 +557,13 @@ void APP_BLE_Init(void)
      UTIL_LCD_DisplayStringAt(0, LINE(3), (uint8_t *)FusVersion, LEFT_MODE);
      BSP_LCD_Refresh(0);
    }
-   HAL_Delay(4000);
-   /* Displays Application */
-   BSP_LCD_Clear(0,SSD1315_COLOR_BLACK);
-   BSP_LCD_Refresh(0);
-   UTIL_LCD_DisplayStringAt(0, 0, (uint8_t *)"WB BLE Sensor", CENTER_MODE);
+   HAL_Delay(1000);
+   /* Interface principale - Lena */
+   BSP_LCD_Clear(0, SSD1315_COLOR_BLACK);
+   UTIL_LCD_SetFont(&Font16);
+   UTIL_LCD_DisplayStringAt(0, 1, (uint8_t *)"** LENA **", CENTER_MODE);
+   UTIL_LCD_SetFont(&Font12);
+   UTIL_LCD_DisplayStringAt(0, 19, (uint8_t *)"-- BLE Sensor --", CENTER_MODE);
    BSP_LCD_Refresh(0);
    
    VL53L0X_Start_Measure();

@@ -137,18 +137,34 @@ uint16_t VL53L0X_PROXIMITY_GetDistance(void)
   * @retval None
   */
 void VL53L0X_PROXIMITY_PrintValue(void){
-      UTIL_LCD_ClearStringLine(2);
-      char distanceText[18];
-      uint16_t prox_value = 0;
-      uint16_t distance = 0;
-      prox_value = VL53L0X_PROXIMITY_GetDistance();
-      if(prox_value < DISTANCE_MAX_PROXIMITY){
-        distance = prox_value / 10;
-        sprintf(distanceText,"Distance : %3d cm",distance);
-        UTIL_LCD_DisplayStringAtLine(2,(uint8_t*)distanceText);
-      }else{
-        UTIL_LCD_DisplayStringAtLine(2,(uint8_t*)"Distance > 200 cm");
-      }
-      BSP_LCD_Refresh(0);
+  char distLine[20];
+  char statusLine[20];
+  uint16_t prox_value = VL53L0X_PROXIMITY_GetDistance();
+
+  /* Effacement de la zone dynamique (sous l'entete fixe) */
+  BSP_LCD_FillRect(0, 0, 32, 128, 32, SSD1315_COLOR_BLACK);
+
+  UTIL_LCD_SetFont(&Font12);
+
+  if(prox_value < DISTANCE_MAX_PROXIMITY){
+    uint16_t distance = prox_value / 10;
+    sprintf(distLine, "  Distance: %3d cm", distance);
+
+    if(distance <= 30){
+      /* Zone 0-30 cm : tres proche, attention */
+      strcpy(statusLine, " !! TRES PROCHE !!");
+    } else {
+      /* Zone 31-199 cm : distance normale */
+      strcpy(statusLine, "    -- OK :) --   ");
+    }
+  } else {
+    /* Zone > 200 cm : hors de portee */
+    strcpy(distLine,   "  Distance > 200cm");
+    strcpy(statusLine, "  ...Trop loin... ");
+  }
+
+  UTIL_LCD_DisplayStringAt(0, 32, (uint8_t *)distLine,   LEFT_MODE);
+  UTIL_LCD_DisplayStringAt(0, 47, (uint8_t *)statusLine, LEFT_MODE);
+  BSP_LCD_Refresh(0);
 }
 

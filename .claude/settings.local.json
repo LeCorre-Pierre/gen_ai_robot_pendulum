@@ -6,7 +6,12 @@
       "WebFetch(domain:www.manualslib.com)",
       "Bash(ls \"D:\\\\Projects\\\\gen_ai_robot_pendulum\\\\BLE_Sensor\"\" && echo \"---\" && ls \"D:Projectsgen_ai_robot_pendulumBLE_SensorDebug\"\")",
       "Read(//c/ST/STM32CubeWB//**)",
-      "Read(//c/ST//**)"
+      "Read(//c/ST//**)",
+      "WebFetch(domain:www.orientdisplay.com)",
+      "WebFetch(domain:wiki.seeedstudio.com)",
+      "WebFetch(domain:files.seeedstudio.com)",
+      "WebFetch(domain:www.st.com)",
+      "WebFetch(domain:docs.arduino.cc)"
     ]
   }
 }
