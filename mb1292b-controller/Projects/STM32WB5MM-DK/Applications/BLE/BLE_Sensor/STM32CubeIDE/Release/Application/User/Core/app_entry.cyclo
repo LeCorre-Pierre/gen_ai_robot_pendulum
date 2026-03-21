@@ -1,0 +1,17 @@
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:406:13:APPE_SysStatusNot	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:687:13:RxCpltCallback	5
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:421:13:APPE_SysUserEvtRx	11
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:101:6:MX_APPE_Config	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:177:6:Init_Smps	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:195:6:Init_Exti	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:205:6:LED_Deinit	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:222:6:LED_On	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:229:6:LED_Off	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:121:6:MX_APPE_Init	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:600:6:HAL_Delay	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:629:6:MX_APPE_Process	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:640:6:UTIL_SEQ_Idle	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:648:6:shci_notify_asynch_evt	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:654:6:shci_cmd_resp_release	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:660:6:shci_cmd_resp_wait	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_entry.c:667:6:HAL_GPIO_EXTI_Callback	2

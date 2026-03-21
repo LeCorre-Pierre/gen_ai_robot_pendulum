@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls d:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Utilities/Fusion/Fusion/*.c)",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}

@@ -65,7 +65,7 @@ Application/User/Core/app_entry.o: \
  ../../Core/Inc/main.h ../../Core/Inc/app_entry.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_lcd.h \
- ../../../../../../../Drivers/BSP/Components/ssd1315/../Common/lcd.h \
+ ../../../../../../../Drivers/BSP/Components/Common/../Common/lcd.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315_reg.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../../../Utilities/Fonts/fonts.h \
@@ -219,7 +219,7 @@ Application/User/Core/app_entry.o: \
 ../../Core/Inc/app_entry.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_lcd.h:
-../../../../../../../Drivers/BSP/Components/ssd1315/../Common/lcd.h:
+../../../../../../../Drivers/BSP/Components/Common/../Common/lcd.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315_reg.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../../../Utilities/Fonts/fonts.h:

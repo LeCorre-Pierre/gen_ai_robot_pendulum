@@ -26,6 +26,7 @@
 #include "stm32_lcd.h"
 #include "stm32wb5mm_dk_bus.h"
 #include "stm32wb5mm_dk_motion_sensors.h"
+#include "Fusion.h"
 
 /* Private defines -----------------------------------------------------------*/ 
 #define PROXIMITY_UPDATE_PERIOD       (uint32_t)(0.5*1000*1000/CFG_TS_TICK_VAL) /*500ms*/
@@ -43,6 +44,8 @@ VL53L0X_Dev_t UserDev =
 };
 
 uint8_t VL53L0X_PROXIMITY_Update_Timer_Id;
+
+static FusionAhrs fusionAhrs;
 
 /* Private function prototypes -----------------------------------------------*/
 static void VL53L0X_PROXIMITY_Update_Timer_Callback(void);
@@ -86,6 +89,18 @@ void VL53L0X_PROXIMITY_Init(void)
   {
     while(1){} // VL53L0X Time of Flight Failed to get infos!
   } 
+  /* Init AHRS Fusion (6-DOF, pas de magnétomètre) */
+  FusionAhrsInitialise(&fusionAhrs);
+  const FusionAhrsSettings fusionSettings = {
+      .convention             = FusionConventionNwu,
+      .gain                   = 0.5f,
+      .gyroscopeRange         = 500.0f,   /* ISM330DHCX ±500 dps */
+      .accelerationRejection  = 10.0f,
+      .magneticRejection      = 10.0f,
+      .recoveryTriggerPeriod  = 10,       /* 5 s à 2 Hz (1/0.5 s) */
+  };
+  FusionAhrsSetSettings(&fusionAhrs, &fusionSettings);
+
   UTIL_SEQ_RegTask( 1<<CFG_TASK_GET_MEASURE_TOF_ID, UTIL_SEQ_RFU, VL53L0X_PROXIMITY_PrintValue);
   /* Create timer to get the measure of TOF */
   HW_TS_Create(CFG_TIM_PROC_ID_ISR,
@@ -141,21 +156,58 @@ void VL53L0X_PROXIMITY_PrintValue(void){
   MOTION_SENSOR_Axes_t acc, gyro;
   char line[32];
 
+  /* --- Lecture IMU --- */
   BSP_MOTION_SENSOR_GetAxes(MOTION_SENSOR_ISM330DHCX_0, MOTION_ACCELERO, &acc);
   BSP_MOTION_SENSOR_GetAxes(MOTION_SENSOR_ISM330DHCX_0, MOTION_GYRO,     &gyro);
 
+  /* --- Conversion BSP → Fusion : mg→g, mdps→dps --- */
+  FusionVector accelerometer;
+  accelerometer.axis.x = (float)acc.x  / 1000.0f;
+  accelerometer.axis.y = (float)acc.y  / 1000.0f;
+  accelerometer.axis.z = (float)acc.z  / 1000.0f;
+
+  FusionVector gyroscope;
+  gyroscope.axis.x = (float)gyro.x / 1000.0f;
+  gyroscope.axis.y = (float)gyro.y / 1000.0f;
+  gyroscope.axis.z = (float)gyro.z / 1000.0f;
+
+  /* --- Mise à jour AHRS (dt = 0.5 s, cadence du timer de démo) --- */
+  FusionAhrsUpdateNoMagnetometer(&fusionAhrs, gyroscope, accelerometer, 0.5f);
+
+  /* --- Angles Euler (degrés) --- */
+  const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&fusionAhrs));
+
+  /* --- Affichage OLED --- */
   BSP_LCD_Clear(0, SSD1315_COLOR_BLACK);
   UTIL_LCD_SetFont(&Font12);
 
-  UTIL_LCD_DisplayStringAt(0, 2,  (uint8_t *)"-- IMU Monitor --", CENTER_MODE);
-  UTIL_LCD_DisplayStringAt(0, 16, (uint8_t *)"Acc (mg):",        LEFT_MODE);
-  snprintf(line, sizeof(line), "%5d|%5d|%5d", (int)acc.x, (int)acc.y, (int)acc.z);
+  /* Titre : indique "INIT" pendant la phase de convergence (3 s) */
+  FusionAhrsFlags flags = FusionAhrsGetFlags(&fusionAhrs);
+  UTIL_LCD_DisplayStringAt(0, 2,
+      (uint8_t *)(flags.initialising ? "-- AHRS  INIT  --" : "-- AHRS Fusion --"),
+      CENTER_MODE);
+
+  /* Angles */
+  snprintf(line, sizeof(line), "Pitch:%+7.1f deg", euler.angle.pitch);
+  UTIL_LCD_DisplayStringAt(0, 16, (uint8_t *)line, LEFT_MODE);
+
+  snprintf(line, sizeof(line), "Roll: %+7.1f deg", euler.angle.roll);
   UTIL_LCD_DisplayStringAt(0, 28, (uint8_t *)line, LEFT_MODE);
 
-  UTIL_LCD_DisplayStringAt(0, 40, (uint8_t *)"Gyro (dps):",      LEFT_MODE);
-  snprintf(line, sizeof(line), "%5d|%5d|%5d",
-           (int)(gyro.x / 1000), (int)(gyro.y / 1000), (int)(gyro.z / 1000));
-  UTIL_LCD_DisplayStringAt(0, 52, (uint8_t *)line, LEFT_MODE);
+  snprintf(line, sizeof(line), "Yaw:  %+7.1f deg", euler.angle.yaw);
+  UTIL_LCD_DisplayStringAt(0, 40, (uint8_t *)line, LEFT_MODE);
+
+  /* Barre visuelle pitch ±45° : [--------|---------] */
+  char bar[19];
+  bar[0]  = '[';
+  bar[17] = ']';
+  bar[18] = '\0';
+  memset(bar + 1, '-', 16);
+  int pos = 8 + (int)(euler.angle.pitch / 45.0f * 8.0f);
+  if (pos < 0)  pos = 0;
+  if (pos > 15) pos = 15;
+  bar[1 + pos] = '|';
+  UTIL_LCD_DisplayStringAt(0, 52, (uint8_t *)bar, LEFT_MODE);
 
   BSP_LCD_Refresh(0);
 }

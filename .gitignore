@@ -1,2 +1,5 @@
 mb1292b-controller/Debug
 *.o
+*.elf
+*.list
+*.map

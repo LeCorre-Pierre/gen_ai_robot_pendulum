@@ -41,6 +41,11 @@
 			<locationURI>PARENT-1-PROJECT_LOC/readme.txt</locationURI>
 		</link>
 		<link>
+			<name>Utilities/FusionAhrs.c</name>
+			<type>1</type>
+			<locationURI>PARENT-6-PROJECT_LOC/Utilities/Fusion/Fusion/FusionAhrs.c</locationURI>
+		</link>
+		<link>
 			<name>Utilities/stm32_lcd.c</name>
 			<type>1</type>
 			<locationURI>PARENT-6-PROJECT_LOC/Utilities/LCD/stm32_lcd.c</locationURI>

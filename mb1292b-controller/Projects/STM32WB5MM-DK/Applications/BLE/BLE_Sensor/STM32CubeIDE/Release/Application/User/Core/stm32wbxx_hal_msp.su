@@ -1,0 +1,7 @@
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:64:6:HAL_MspInit	16	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:91:6:HAL_IPCC_MspInit	8	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:113:6:HAL_IPCC_MspDeInit	0	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:135:6:HAL_RTC_MspInit	96	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:169:6:HAL_RTC_MspDeInit	0	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:192:6:HAL_UART_MspInit	128	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c:260:6:HAL_UART_MspDeInit	8	static

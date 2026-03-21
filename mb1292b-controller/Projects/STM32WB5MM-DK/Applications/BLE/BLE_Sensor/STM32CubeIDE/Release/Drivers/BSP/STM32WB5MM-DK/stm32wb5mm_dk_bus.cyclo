@@ -1,0 +1,17 @@
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:539:22:LL_AHB2_GRP1_EnableClock	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:773:16:I2C3_WriteReg.part.0	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:239:9:BSP_I2C3_DeInit	4
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:271:9:BSP_I2C3_WriteReg	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:284:9:BSP_I2C3_ReadReg	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:297:9:BSP_I2C3_WriteReg16	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:310:9:BSP_I2C3_ReadReg16	2
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:321:9:BSP_I2C3_IsReady	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:371:9:BSP_SPI1_DeInit	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:393:26:MX_SPI1_Init	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:337:9:BSP_SPI1_Init	5
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:423:9:BSP_SPI1_Send	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:440:10:BSP_SPI1_Recv	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:459:9:BSP_SPI1_SendRecv	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:534:9:BSP_GetTick	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:599:26:MX_I2C3_Init	3
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_bus.c:191:9:BSP_I2C3_Init	25

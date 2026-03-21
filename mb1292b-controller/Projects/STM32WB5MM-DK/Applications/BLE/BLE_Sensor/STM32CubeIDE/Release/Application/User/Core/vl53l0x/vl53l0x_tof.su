@@ -1,0 +1,13 @@
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:41:5:_I2CWrite	16	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:50:5:_I2CRead	16	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:59:15:VL53L0X_RdByte	24	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:83:15:VL53L0X_WriteMulti	16	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:104:15:VL53L0X_ReadMulti	24	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:125:15:VL53L0X_RdWord	24	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:148:15:VL53L0X_RdDWord	24	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:172:15:VL53L0X_WrByte	8	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:188:15:VL53L0X_WrWord	8	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:205:15:VL53L0X_UpdateByte	32	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:221:15:VL53L0X_WrDWord	8	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:238:15:VL53L0X_PollingDelay	8	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/vl53l0x/vl53l0x_tof.c:249:6:SetupSingleShot	16	static

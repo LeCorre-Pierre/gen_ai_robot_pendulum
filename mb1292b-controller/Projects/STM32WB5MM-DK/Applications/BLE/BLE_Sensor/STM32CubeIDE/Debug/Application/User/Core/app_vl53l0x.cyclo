@@ -1,6 +1,9 @@
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:53:6:VL53L0X_PROXIMITY_Init	5
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:98:6:VL53L0X_Start_Measure	1
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:104:6:VL53L0X_Stop_Measure	1
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:116:13:VL53L0X_PROXIMITY_Update_Timer_Callback	1
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:126:10:VL53L0X_PROXIMITY_GetDistance	1
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:140:6:VL53L0X_PROXIMITY_PrintValue	1
+../../../../../../../Utilities/Fusion/Fusion/FusionMath.h:136:21:FusionRadiansToDegrees	1
+../../../../../../../Utilities/Fusion/Fusion/FusionMath.h:149:21:FusionArcSin	3
+../../../../../../../Utilities/Fusion/Fusion/FusionMath.h:540:27:FusionQuaternionToEuler	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:56:6:VL53L0X_PROXIMITY_Init	5
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:113:6:VL53L0X_Start_Measure	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:119:6:VL53L0X_Stop_Measure	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:131:13:VL53L0X_PROXIMITY_Update_Timer_Callback	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:141:10:VL53L0X_PROXIMITY_GetDistance	1
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_vl53l0x.c:155:6:VL53L0X_PROXIMITY_PrintValue	4

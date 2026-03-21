@@ -74,7 +74,7 @@ Application/User/Core/app_vl53l0x.o: \
  ../../../../../../../Middlewares/ST/STM32_WPAN/ble/core/ble_bufsize.h \
  ../../../../../../../Utilities/sequencer/stm32_seq.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_lcd.h \
- ../../../../../../../Drivers/BSP/Components/ssd1315/../Common/lcd.h \
+ ../../../../../../../Drivers/BSP/Components/Common/../Common/lcd.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315_reg.h \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../../../Utilities/Fonts/fonts.h \
@@ -85,7 +85,15 @@ Application/User/Core/app_vl53l0x.o: \
  ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors.h \
  ../../../../../../../Drivers/BSP/Components/Common/motion_sensor.h \
  ../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx.h \
- ../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx_reg.h
+ ../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx_reg.h \
+ ../../../../../../../Utilities/Fusion/Fusion/Fusion.h \
+ ../../../../../../../Utilities/Fusion/Fusion/FusionAhrs.h \
+ ../../../../../../../Utilities/Fusion/Fusion/FusionConvention.h \
+ ../../../../../../../Utilities/Fusion/Fusion/FusionMath.h \
+ ../../../../../../../Utilities/Fusion/Fusion/FusionBias.h \
+ ../../../../../../../Utilities/Fusion/Fusion/FusionCompass.h \
+ ../../../../../../../Utilities/Fusion/Fusion/FusionModel.h \
+ ../../../../../../../Utilities/Fusion/Fusion/FusionRemap.h
 ../../Core/Inc/app_vl53l0x.h:
 ../../Core/Src/vl53l0x/vl53l0x_def.h:
 ../../Core/Src/vl53l0x/vl53l0x_device.h:
@@ -163,7 +171,7 @@ Application/User/Core/app_vl53l0x.o: \
 ../../../../../../../Middlewares/ST/STM32_WPAN/ble/core/ble_bufsize.h:
 ../../../../../../../Utilities/sequencer/stm32_seq.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_lcd.h:
-../../../../../../../Drivers/BSP/Components/ssd1315/../Common/lcd.h:
+../../../../../../../Drivers/BSP/Components/Common/../Common/lcd.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315_reg.h:
 ../../../../../../../Drivers/BSP/STM32WB5MM-DK/../../../Utilities/Fonts/fonts.h:
@@ -175,3 +183,11 @@ Application/User/Core/app_vl53l0x.o: \
 ../../../../../../../Drivers/BSP/Components/Common/motion_sensor.h:
 ../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx.h:
 ../../../../../../../Drivers/BSP/Components/ism330dhcx/ism330dhcx_reg.h:
+../../../../../../../Utilities/Fusion/Fusion/Fusion.h:
+../../../../../../../Utilities/Fusion/Fusion/FusionAhrs.h:
+../../../../../../../Utilities/Fusion/Fusion/FusionConvention.h:
+../../../../../../../Utilities/Fusion/Fusion/FusionMath.h:
+../../../../../../../Utilities/Fusion/Fusion/FusionBias.h:
+../../../../../../../Utilities/Fusion/Fusion/FusionCompass.h:
+../../../../../../../Utilities/Fusion/Fusion/FusionModel.h:
+../../../../../../../Utilities/Fusion/Fusion/FusionRemap.h:

@@ -1,0 +1,3 @@
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/wb5m_sensor_stm.c:84:30:Motenv_Event_Handler	24	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/wb5m_sensor_stm.c:203:6:MOTENV_STM_Init	72	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/wb5m_sensor_stm.c:259:12:MOTENV_STM_App_Update_Char	16	static

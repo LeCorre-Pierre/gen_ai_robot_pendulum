@@ -82,6 +82,7 @@
 "./Middlewares/STM32_WPAN/stm_queue.o"
 "./Middlewares/STM32_WPAN/svc_ctl.o"
 "./Middlewares/STM32_WPAN/tl_mbox.o"
+"./Utilities/FusionAhrs.o"
 "./Utilities/stm32_lcd.o"
 "./Utilities/stm32_lpm.o"
 "./Utilities/stm32_seq.o"

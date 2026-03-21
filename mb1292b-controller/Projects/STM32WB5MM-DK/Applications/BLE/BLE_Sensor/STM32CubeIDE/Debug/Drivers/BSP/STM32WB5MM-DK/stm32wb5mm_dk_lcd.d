@@ -47,7 +47,7 @@ Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_lcd.o: \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_uart_ex.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_system.h \
  D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_errno.h \
- ../../../../../../../Drivers/BSP/Components/ssd1315/../Common/lcd.h \
+ ../../../../../../../Drivers/BSP/Components/Common/../Common/lcd.h \
  D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315.h \
  D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315_reg.h \
  D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/../../../Utilities/Fonts/fonts.h \
@@ -99,7 +99,7 @@ D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/s
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_uart_ex.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_system.h:
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_errno.h:
-../../../../../../../Drivers/BSP/Components/ssd1315/../Common/lcd.h:
+../../../../../../../Drivers/BSP/Components/Common/../Common/lcd.h:
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315.h:
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/../Components/ssd1315/ssd1315_reg.h:
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Drivers/BSP/STM32WB5MM-DK/../../../Utilities/Fonts/fonts.h:

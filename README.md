@@ -69,3 +69,7 @@ What to use them for:
 - `mclean`: remove build artifacts
 - `mrebuild`: clean and rebuild in one step
 
+To modify the project properties , you must modify the files in STM32CubeIDE format:
+- mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32CubeIDE/.project
+- mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32CubeIDE/.cproject
+
