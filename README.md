@@ -97,3 +97,13 @@ To modify the project properties , you must modify the files in STM32CubeIDE for
 - mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32CubeIDE/.project
 - mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32CubeIDE/.cproject
 
+## Console debug
+
+To interract with the device, use this command:
+python -m serial.tools.miniterm COM4 115200
+
+## To run the app:
+
+cd app-pc-monitor
+py -3.11 main.py
+

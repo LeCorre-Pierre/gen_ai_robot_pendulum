@@ -2,7 +2,7 @@
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_system.h:2235:26:LL_FLASH_GetDeviceID	4	static
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_system.h:2247:26:LL_FLASH_GetSTCompanyID	4	static
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/app_ble.c:374:6:APP_BLE_Init	224	static
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/app_ble.c:571:28:SVCCTL_App_Notification	80	static
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/app_ble.c:571:28:SVCCTL_App_Notification	48	static
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/app_ble.c:812:22:APP_BLE_Get_Server_Connection_Status	4	static
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/app_ble.c:818:6:APP_BLE_Key_Button1_Action	8	static
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32_WPAN/App/app_ble.c:830:13:Ble_Tl_Init	16	static

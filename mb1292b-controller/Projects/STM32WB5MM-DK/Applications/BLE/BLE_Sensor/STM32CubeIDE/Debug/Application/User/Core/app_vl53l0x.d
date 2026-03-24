@@ -37,6 +37,7 @@ Application/User/Core/app_vl53l0x.o: \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_pwr.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_exti.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_pwr_ex.h \
+ ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_qspi.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_rcc.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rcc.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h \
@@ -93,7 +94,13 @@ Application/User/Core/app_vl53l0x.o: \
  ../../../../../../../Utilities/Fusion/Fusion/FusionBias.h \
  ../../../../../../../Utilities/Fusion/Fusion/FusionCompass.h \
  ../../../../../../../Utilities/Fusion/Fusion/FusionModel.h \
- ../../../../../../../Utilities/Fusion/Fusion/FusionRemap.h
+ ../../../../../../../Utilities/Fusion/Fusion/FusionRemap.h \
+ ../../Core/Inc/app_entry.h \
+ ../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.h \
+ ../../../../../../../Drivers/BSP/Components/Common/env_sensor.h \
+ ../../../../../../../Drivers/BSP/Components/stts22h/stts22h.h \
+ ../../../../../../../Drivers/BSP/Components/stts22h/stts22h_reg.h \
+ ../../Core/Inc/app_vl53l0x.h
 ../../Core/Inc/app_vl53l0x.h:
 ../../Core/Src/vl53l0x/vl53l0x_def.h:
 ../../Core/Src/vl53l0x/vl53l0x_device.h:
@@ -132,6 +139,7 @@ Application/User/Core/app_vl53l0x.o: \
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_pwr.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_exti.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_pwr_ex.h:
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_qspi.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_rcc.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rcc.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:
@@ -191,3 +199,9 @@ Application/User/Core/app_vl53l0x.o: \
 ../../../../../../../Utilities/Fusion/Fusion/FusionCompass.h:
 ../../../../../../../Utilities/Fusion/Fusion/FusionModel.h:
 ../../../../../../../Utilities/Fusion/Fusion/FusionRemap.h:
+../../Core/Inc/app_entry.h:
+../../../../../../../Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_env_sensors.h:
+../../../../../../../Drivers/BSP/Components/Common/env_sensor.h:
+../../../../../../../Drivers/BSP/Components/stts22h/stts22h.h:
+../../../../../../../Drivers/BSP/Components/stts22h/stts22h_reg.h:
+../../Core/Inc/app_vl53l0x.h:

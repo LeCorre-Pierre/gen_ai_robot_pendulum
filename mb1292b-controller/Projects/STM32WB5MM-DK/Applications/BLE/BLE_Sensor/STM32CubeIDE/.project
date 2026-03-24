@@ -301,6 +301,21 @@
 			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/app_vl53l0x.c</locationURI>
 		</link>
 		<link>
+			<name>Application/User/Core/host_link.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/host_link.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/Core/host_link_params.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/host_link_params.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/Core/host_link_storage.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/host_link_storage.c</locationURI>
+		</link>
+		<link>
 			<name>Application/User/Core/hw_timerserver.c</name>
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/hw_timerserver.c</locationURI>
@@ -394,6 +409,21 @@
 			<name>Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors_ex.c</name>
 			<type>1</type>
 			<locationURI>PARENT-6-PROJECT_LOC/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_motion_sensors_ex.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_qspi.c</name>
+			<type>1</type>
+			<locationURI>PARENT-6-PROJECT_LOC/Drivers/BSP/STM32WB5MM-DK/stm32wb5mm_dk_qspi.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/s25fl128s.c</name>
+			<type>1</type>
+			<locationURI>PARENT-6-PROJECT_LOC/Drivers/BSP/Components/s25fl128s/s25fl128s.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/STM32WBxx_HAL_Driver/stm32wbxx_hal_qspi.c</name>
+			<type>1</type>
+			<locationURI>PARENT-6-PROJECT_LOC/Drivers/STM32WBxx_HAL_Driver/Src/stm32wbxx_hal_qspi.c</locationURI>
 		</link>
 		<link>
 			<name>Application/User/Core/vl53l0x/vl53l0x_api.c</name>

@@ -5,5 +5,3 @@ D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Appl
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_debug.c:231:6:APPD_EnableCPU2	48	static
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_debug.c:260:13:APPD_SetCPU2GpioConfig	40	static
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_debug.c:332:13:APPD_BleDtbCfg	4	static
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_debug.c:396:6:DbgOutputInit	8	static
-D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/app_debug.c:418:6:DbgOutputTraces	24	static

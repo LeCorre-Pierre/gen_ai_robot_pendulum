@@ -140,7 +140,7 @@ The GUI should handle these device modes:
 | Type | Name | Direction | Payload |
 |---|---|---|---|
 | `0x01` | `PING` | PC -> STM32 | empty |
-| `0x02` | `PONG` | STM32 -> PC | uptime, protocol version |
+| `0x02` | `PONG` | STM32 -> PC | `uptime_ms (u32 LE)`, `protocol_version (u8)` |
 | `0x03` | `GET_DEVICE_INFO` | PC -> STM32 | empty |
 | `0x04` | `DEVICE_INFO` | STM32 -> PC | IDs and capability bitmap |
 | `0x05` | `ACK` | STM32 -> PC | acked type + seq |
@@ -153,7 +153,7 @@ The GUI should handle these device modes:
 | `0x10` | `SET_STREAM_CONFIG` | PC -> STM32 | stream ID, enable, period |
 | `0x11` | `GET_STREAM_CONFIG` | PC -> STM32 | stream ID |
 | `0x12` | `STREAM_CONFIG` | STM32 -> PC | stream ID, state, period |
-| `0x13` | `TELEMETRY_SAMPLE` | STM32 -> PC | sample packet |
+| `0x13` | `TELEMETRY_SAMPLE` | STM32 -> PC | `stream_id (u8)` + sample payload |
 | `0x14` | `TELEMETRY_BURST` | STM32 -> PC | compact multi-sample packet |
 
 ### 6.3 Parameter access
@@ -167,6 +167,14 @@ The GUI should handle these device modes:
 | `0x24` | `PARAMETER_VALUE` | STM32 -> PC | parameter ID + value |
 | `0x25` | `SAVE_PARAMETERS` | PC -> STM32 | empty |
 | `0x26` | `LOAD_PARAMETERS` | PC -> STM32 | profile slot or defaults |
+
+Positive reply convention:
+
+- `WRITE_PARAMETER` -> `ACK`
+- `SAVE_PARAMETERS` -> `ACK`
+- `LOAD_PARAMETERS` -> `ACK`
+- `SET_STREAM_CONFIG` -> `STREAM_CONFIG`
+- malformed or rejected writable commands -> `NACK`
 
 ### 6.4 Commands
 
@@ -366,6 +374,28 @@ Every tunable value must have:
 | `name` | string | short stable key |
 | `unit` | string | display unit |
 | `group` | string | GUI grouping |
+
+Binary serialization on the wire:
+
+- `param_id` `u16 LE`
+- `type` `u8`
+- `flags` `u8`
+- `min_value` encoded according to `type`
+- `max_value` encoded according to `type`
+- `default_value` encoded according to `type`
+- `name_len` `u8`
+- `name` raw bytes, not NUL-terminated
+- `unit_len` `u8`
+- `unit` raw bytes, not NUL-terminated
+- `group_len` `u8`
+- `group` raw bytes, not NUL-terminated
+
+Variant encoding rules:
+
+- `bool` -> `u8`
+- `u8` -> `u8`
+- `i32` -> `i32 LE`
+- `f32` -> IEEE754 `f32 LE`
 
 ### 8.2 Recommended parameter groups
 
@@ -652,4 +682,3 @@ If the protocol evolves:
 - increment `VER`
 - keep old message IDs stable whenever possible
 - add fields at the end of payloads only
-

@@ -3,3 +3,6 @@ mb1292b-controller/Debug
 *.elf
 *.list
 *.map
+*.d
+*.su
+*.cyclo

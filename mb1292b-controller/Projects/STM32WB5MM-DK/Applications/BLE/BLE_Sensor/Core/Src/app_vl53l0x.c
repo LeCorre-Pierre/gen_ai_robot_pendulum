@@ -177,35 +177,33 @@ void VL53L0X_PROXIMITY_PrintValue(void)
 
   BSP_LCD_Refresh(0);
 
-  /* LED RGB — indicateur tilt AHRS
-   * BLUE  : convergence initiale (3 s)
-   * GREEN : |pitch| ≤ 15° — quasi-vertical
-   * ORANGE: 15° < |pitch| ≤ 30° — attention
-   * RED   : |pitch| > 30° — danger
+  /* LED RGB — indicateur tilt AHRS (luminosité minimale 0.02%)
+   * BLUE  : convergence initiale  GREEN : |pitch| ≤ 15°
+   * ORANGE: 15–30°                RED   : > 30°
    */
   {
     const FusionAhrsFlags flags = FusionAhrsGetFlags(&fusionAhrs);
-    const float pitch = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&fusionAhrs)).angle.pitch;
+    const float pitch    = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&fusionAhrs)).angle.pitch;
     const float absPitch = (pitch < 0.0f) ? -pitch : pitch;
 
     aPwmLedGsData_TypeDef gs = {PWM_LED_GSDATA_OFF, PWM_LED_GSDATA_OFF, PWM_LED_GSDATA_OFF};
 
     if (flags.initialising)
     {
-      gs[PWM_LED_BLUE]  = PWM_LED_GSDATA_7_0;
+      gs[PWM_LED_BLUE]  = PWM_LED_GSDATA_0_02;
     }
     else if (absPitch <= 15.0f)
     {
-      gs[PWM_LED_GREEN] = PWM_LED_GSDATA_7_0;
+      gs[PWM_LED_GREEN] = PWM_LED_GSDATA_0_02;
     }
     else if (absPitch <= 30.0f)
     {
-      gs[PWM_LED_RED]   = PWM_LED_GSDATA_7_0;
-      gs[PWM_LED_GREEN] = PWM_LED_GSDATA_1_3;
+      gs[PWM_LED_RED]   = PWM_LED_GSDATA_0_02;
+      gs[PWM_LED_GREEN] = PWM_LED_GSDATA_0_02;
     }
     else
     {
-      gs[PWM_LED_RED]   = PWM_LED_GSDATA_7_0;
+      gs[PWM_LED_RED]   = PWM_LED_GSDATA_0_02;
     }
 
     LED_On(gs);

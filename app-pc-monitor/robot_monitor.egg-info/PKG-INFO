@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: robot-monitor
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: PySide6>=6.6
+Requires-Dist: pyqtgraph>=0.13
+Requires-Dist: pyserial>=3.5
+Requires-Dist: numpy>=1.26
+Requires-Dist: platformdirs>=4.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-qt>=4.3; extra == "dev"

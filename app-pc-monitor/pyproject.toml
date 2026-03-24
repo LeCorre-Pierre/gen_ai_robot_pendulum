@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robot-monitor"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "pyserial>=3.5",
+    "numpy>=1.26",
+    "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-qt>=4.3"]
+
+[project.scripts]
+robot-monitor = "monitor.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["monitor*"]

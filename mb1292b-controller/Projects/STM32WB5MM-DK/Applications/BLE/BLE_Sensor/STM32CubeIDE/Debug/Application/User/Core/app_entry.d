@@ -33,6 +33,7 @@ Application/User/Core/app_entry.o: \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_pwr.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_exti.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_pwr_ex.h \
+ ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_qspi.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_rcc.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rcc.h \
  ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h \
@@ -150,7 +151,8 @@ Application/User/Core/app_entry.o: \
  ../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/shci/shci.h \
  ../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/tl/mbox_def.h \
  ../../../../../../../Middlewares/ST/STM32_WPAN/utilities/otp.h \
- ../../../../../../../Middlewares/ST/STM32_WPAN/utilities/utilities_common.h
+ ../../../../../../../Middlewares/ST/STM32_WPAN/utilities/utilities_common.h \
+ ../../Core/Inc/host_link.h ../../Core/Inc/host_link_protocol.h
 ../../Core/Inc/app_common.h:
 ../../Core/Inc/app_conf.h:
 ../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/hw.h:
@@ -186,6 +188,7 @@ Application/User/Core/app_entry.o: \
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_pwr.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_exti.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_pwr_ex.h:
+../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_qspi.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_hal_rcc.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rcc.h:
 ../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:
@@ -309,3 +312,5 @@ Application/User/Core/app_entry.o: \
 ../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/tl/mbox_def.h:
 ../../../../../../../Middlewares/ST/STM32_WPAN/utilities/otp.h:
 ../../../../../../../Middlewares/ST/STM32_WPAN/utilities/utilities_common.h:
+../../Core/Inc/host_link.h:
+../../Core/Inc/host_link_protocol.h:

@@ -3,7 +3,13 @@
     "allow": [
       "Bash(ls d:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Utilities/Fusion/Fusion/*.c)",
       "Bash(xargs grep:*)",
-      "Bash(grep -n \"LED_On\\\\|LED_Off\\\\|LED_Init\\\\|LED_Deinit\" d:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Inc/*.h)"
+      "Bash(grep -n \"LED_On\\\\|LED_Off\\\\|LED_Init\\\\|LED_Deinit\" d:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Inc/*.h)",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest tests/test_protocol.py tests/test_ring_buffer.py tests/test_telemetry.py -v)",
+      "Bash(py -3.11 -m pytest tests/test_protocol.py tests/test_ring_buffer.py tests/test_telemetry.py -v)",
+      "Bash(py -3.11 -m pytest tests/test_parameters.py -v)",
+      "Bash(py -3.11 -c \"from monitor.ui.main_window import MainWindow; print\\(''import OK''\\)\")",
+      "Bash(py -3.11 -c \"from monitor.ui.main_window import MainWindow; print\\(''OK''\\)\")"
     ]
   }
 }

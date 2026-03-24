@@ -35,6 +35,7 @@
 
 /* Private includes -----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "host_link.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,8 +51,10 @@ EXTI_HandleTypeDef exti_handle;
 
 /* USER CODE BEGIN PD */
 /* Section specific to button management using UART */
+#if (CFG_HOST_LINK_ENABLE == 0)
 #define C_SIZE_CMD_STRING       256U
 #define RX_BUFFER_SIZE          8U
+#endif
 /* USER CODE END PD */
 
 /* Private macros ------------------------------------------------------------*/
@@ -67,9 +70,11 @@ PLACE_IN_SECTION("MB_MEM2") ALIGN(4) static uint8_t BleSpareEvtBuffer[sizeof(TL_
 
 /* USER CODE BEGIN PV */
 /* Section specific to button management using UART */
+#if (CFG_HOST_LINK_ENABLE == 0)
 static uint8_t aRxBuffer[RX_BUFFER_SIZE];
 static uint8_t CommandString[C_SIZE_CMD_STRING];
 static uint16_t indexReceiveChar = 0;
+#endif
 /* USER CODE END PV */
 
 /* Private functions prototypes-----------------------------------------------*/
@@ -92,9 +97,11 @@ static void Init_Rtc(void);
 static void Button_Init( void );
 
 /* Section specific to button management using UART */
+#if (CFG_HOST_LINK_ENABLE == 0)
 static void RxUART_Init(void);
 static void RxCpltCallback(void);
 static void UartCmdExecute(void);
+#endif
 /* USER CODE END PFP */
 
 /* Functions Definition ------------------------------------------------------*/
@@ -157,7 +164,11 @@ void MX_APPE_Init(void)
   //Initialize user buttons
   Button_Init();
 
+#if (CFG_HOST_LINK_ENABLE == 0)
   RxUART_Init();
+#else
+  HOSTLINK_Init();
+#endif
 
 /* USER CODE END APPE_Init_1 */
   appe_Tl_Init();	/* Initialize all transport layers */
@@ -629,6 +640,9 @@ void HAL_Delay(uint32_t Delay)
 void MX_APPE_Process(void)
 {
   /* USER CODE BEGIN MX_APPE_Process_1 */
+#if (CFG_HOST_LINK_ENABLE != 0)
+  HOSTLINK_Process();
+#endif
 
   /* USER CODE END MX_APPE_Process_1 */
   UTIL_SEQ_Run(UTIL_SEQ_DEFAULT);
@@ -679,6 +693,7 @@ void HAL_GPIO_EXTI_Callback( uint16_t GPIO_Pin )
   return;
 }
 
+#if (CFG_HOST_LINK_ENABLE == 0)
 static void RxUART_Init(void)
 {
   HW_UART_Receive_IT((hw_uart_id_t)CFG_DEBUG_TRACE_UART, aRxBuffer, 1U, RxCpltCallback);
@@ -729,5 +744,6 @@ static void UartCmdExecute(void)
     APP_DBG_MSG("NOT RECOGNIZED COMMAND : %s\n", CommandString);
   }
 }
+#endif
 
 /* USER CODE END FD_WRAP_FUNCTIONS */
