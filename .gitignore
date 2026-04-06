@@ -6,3 +6,4 @@ mb1292b-controller/Debug
 *.d
 *.su
 *.cyclo
+*.pyc

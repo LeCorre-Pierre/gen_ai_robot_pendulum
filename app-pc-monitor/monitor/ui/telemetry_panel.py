@@ -22,8 +22,19 @@ from monitor.model.telemetry import STREAM_DEFS, StreamDef, SignalDef
 
 pg.setConfigOptions(antialias=True, background="#1e1e1e", foreground="#cccccc")
 
-_PERIODS_MS = [5, 10, 20, 50, 100]
+_PERIODS_MS  = [5, 10, 20, 50, 100]
 _BUFFER_DEPTH = 10_000
+
+# Time window options for the scrolling X axis: (label, seconds or None=all)
+_WINDOWS: list[tuple[str, float | None]] = [
+    ("5 s",   5.0),
+    ("10 s",  10.0),
+    ("30 s",  30.0),
+    ("1 min", 60.0),
+    ("5 min", 300.0),
+    ("All",   None),
+]
+_DEFAULT_WINDOW_IDX = 1   # 10 s
 
 
 class _SignalTrack:
@@ -34,17 +45,30 @@ class _SignalTrack:
         self.buffer  = RingBuffer(_BUFFER_DEPTH)
         self.visible = sig.default_visible
         pen = pg.mkPen(color=sig.color, width=1)
-        self.curve: pg.PlotDataItem = plot.plot(pen=pen, name=sig.name)
+        self.curve: pg.PlotDataItem = plot.plot(
+            np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64),
+            pen=pen, name=sig.name,
+        )
+        # Only render points visible in the current view; auto-subsample the rest.
+        # This keeps frame time constant regardless of ring-buffer size.
+        self.curve.setDownsampling(auto=True, method="subsample")
+        self.curve.setClipToView(True)
         self.curve.setVisible(self.visible)
 
     def push(self, ts: float, value: float) -> None:
         self.buffer.push(ts, value)
 
-    def refresh(self) -> None:
+    def refresh(self, window_s: float | None = None) -> None:
         if not self.visible or self.buffer.count == 0:
             return
         times, vals = self.buffer.get_arrays()
-        self.curve.setData(x=times, y=vals)
+        if window_s is not None and len(times) > 0:
+            cutoff = times[-1] - window_s
+            idx = int(np.searchsorted(times, cutoff))
+            times = times[idx:]
+            vals  = vals[idx:]
+        if len(times):
+            self.curve.setData(x=times, y=vals)
 
     def set_visible(self, v: bool) -> None:
         self.visible = v
@@ -89,6 +113,12 @@ class _StreamWidget(QGroupBox):
         self._period_combo.setCurrentIndex(default_idx)
         self._period_combo.currentIndexChanged.connect(self._on_toggled)
 
+        self._window_combo = QComboBox()
+        for label, secs in _WINDOWS:
+            self._window_combo.addItem(label, userData=secs)
+        self._window_combo.setCurrentIndex(_DEFAULT_WINDOW_IDX)
+        self._window_combo.setToolTip("Scrolling time window shown on the plot")
+
         self._freeze_btn = QPushButton("Freeze")
         self._freeze_btn.setCheckable(True)
         self._freeze_btn.setFixedWidth(70)
@@ -100,6 +130,8 @@ class _StreamWidget(QGroupBox):
 
         ctrl.addWidget(QLabel("Period:"))
         ctrl.addWidget(self._period_combo)
+        ctrl.addWidget(QLabel("Window:"))
+        ctrl.addWidget(self._window_combo)
         ctrl.addWidget(self._freeze_btn)
         ctrl.addWidget(self._clear_btn)
         ctrl.addStretch()
@@ -128,6 +160,11 @@ class _StreamWidget(QGroupBox):
         self._plot_widget.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Expanding
         )
+        # Disable X-axis auto-range so our manual setXRange is never
+        # silently overridden by pyqtgraph after each setData() call.
+        self._plot_widget.getPlotItem().getViewBox().disableAutoRange(
+            pg.ViewBox.XAxis
+        )
 
         plot_item = self._plot_widget.getPlotItem()
         for sig in sdef.signals:
@@ -148,8 +185,25 @@ class _StreamWidget(QGroupBox):
     def refresh_plots(self) -> None:
         if self._frozen:
             return
+        window_s: float | None = self._window_combo.currentData()
+
+        # Use the latest timestamp present in the buffers as "now".
+        # Do NOT use time.monotonic(): the buffer timestamps may be firmware
+        # uptime (seconds since MCU boot) which is on a completely different
+        # scale from the PC clock.
+        t_now: float | None = None
         for track in self._tracks.values():
-            track.refresh()
+            t = track.buffer.latest_time
+            if t is not None and (t_now is None or t > t_now):
+                t_now = t
+
+        for track in self._tracks.values():
+            track.refresh(window_s=window_s)
+
+        if window_s is not None and t_now is not None:
+            self._plot_widget.setXRange(t_now - window_s, t_now, padding=0)
+        else:
+            self._plot_widget.enableAutoRange(axis="x")
 
     def clear_all(self) -> None:
         for track in self._tracks.values():

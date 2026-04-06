@@ -8,7 +8,10 @@
 #include "host_link_params.h"
 #include "host_link_storage.h"
 #include "hw_if.h"
+#include "stm32wb5mm_dk_env_sensors.h"
+#include "stm32wb5mm_dk_motion_sensors.h"
 #include "stm32wb5mm_dk_qspi.h"
+#include "Fusion.h"
 
 typedef struct
 {
@@ -27,6 +30,14 @@ typedef struct
     uint16_t period_ms;
     uint32_t next_due_ms;
 } HostLinkStreamConfig_t;
+
+typedef struct
+{
+    float forward;
+    float turn;
+    uint32_t updated_at_ms;
+    uint8_t valid;
+} HostLinkManualCommand_t;
 
 typedef enum
 {
@@ -68,6 +79,30 @@ static HostLinkRuntimeHealth_t g_host_link_health;
 static HostLinkMode_t g_host_link_mode = HOST_LINK_MODE_BOOT;
 static uint8_t g_host_link_pending_boot_event = 1u;
 static uint8_t g_host_link_pending_mode_event = 1u;
+static FusionAhrs g_host_link_fusion_ahrs;
+static uint32_t g_host_link_last_imu_tick_ms;
+static HostLinkManualCommand_t g_host_link_manual_command;
+
+static float HOSTLINK_ClampUnit(float value)
+{
+    if (value > 1.0f)
+    {
+        return 1.0f;
+    }
+    if (value < -1.0f)
+    {
+        return -1.0f;
+    }
+    return value;
+}
+
+static void HOSTLINK_ResetManualCommand(void)
+{
+    g_host_link_manual_command.forward = 0.0f;
+    g_host_link_manual_command.turn = 0.0f;
+    g_host_link_manual_command.updated_at_ms = g_host_link_uptime_ms;
+    g_host_link_manual_command.valid = 0u;
+}
 
 static uint16_t HOSTLINK_Crc16Update(uint16_t crc, uint8_t data)
 {
@@ -248,6 +283,21 @@ static void HOSTLINK_SetMode(HostLinkMode_t mode)
         g_host_link_mode = mode;
         g_host_link_pending_mode_event = 1u;
     }
+}
+
+static void HOSTLINK_InitFusion(void)
+{
+    FusionAhrsSettings fusion_settings;
+
+    FusionAhrsInitialise(&g_host_link_fusion_ahrs);
+    fusion_settings.convention = FusionConventionNwu;
+    fusion_settings.gain = 0.5f;
+    fusion_settings.gyroscopeRange = 500.0f;
+    fusion_settings.accelerationRejection = 10.0f;
+    fusion_settings.magneticRejection = 10.0f;
+    fusion_settings.recoveryTriggerPeriod = 10u;
+    FusionAhrsSetSettings(&g_host_link_fusion_ahrs, &fusion_settings);
+    g_host_link_last_imu_tick_ms = 0u;
 }
 
 static void HOSTLINK_RxCallback(void)
@@ -612,6 +662,121 @@ static void HOSTLINK_HandleGetStreamConfig(const HostLinkPacket_t *request)
     HOSTLINK_SendStreamConfigPacket(request->seq, stream);
 }
 
+static void HOSTLINK_HandleSetControlMode(const HostLinkPacket_t *request)
+{
+    HostLinkMode_t requested_mode;
+
+    if (request->length != 1u)
+    {
+        HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_BAD_LENGTH);
+        return;
+    }
+
+    requested_mode = (HostLinkMode_t)request->payload[0];
+
+    switch (requested_mode)
+    {
+        case HOST_LINK_MODE_IDLE:
+            HOSTLINK_ResetManualCommand();
+            if (g_host_link_mode == HOST_LINK_MODE_FAULT)
+            {
+                g_host_link_health.active_fault_code = 0u;
+            }
+            HOSTLINK_SetMode(HOST_LINK_MODE_IDLE);
+            HOSTLINK_SendAck(request->type, request->seq);
+            break;
+
+        case HOST_LINK_MODE_ARMED:
+            if (g_host_link_mode == HOST_LINK_MODE_FAULT)
+            {
+                HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_NOT_READY);
+                return;
+            }
+            HOSTLINK_SetMode(HOST_LINK_MODE_ARMED);
+            HOSTLINK_SendAck(request->type, request->seq);
+            break;
+
+        case HOST_LINK_MODE_TEST:
+        case HOST_LINK_MODE_CALIBRATION:
+            if (g_host_link_mode == HOST_LINK_MODE_FAULT)
+            {
+                HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_NOT_READY);
+                return;
+            }
+            HOSTLINK_ResetManualCommand();
+            HOSTLINK_SetMode(requested_mode);
+            HOSTLINK_SendAck(request->type, request->seq);
+            break;
+
+        default:
+            HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_PARAM_OUT_OF_RANGE);
+            break;
+    }
+}
+
+static void HOSTLINK_HandleSetManualCommand(const HostLinkPacket_t *request)
+{
+    float forward;
+    float turn;
+
+    if (request->length != 8u)
+    {
+        HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_BAD_LENGTH);
+        return;
+    }
+
+    if (g_host_link_mode != HOST_LINK_MODE_ARMED)
+    {
+        HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_NOT_READY);
+        return;
+    }
+
+    memcpy(&forward, &request->payload[0], sizeof(float));
+    memcpy(&turn, &request->payload[4], sizeof(float));
+
+    g_host_link_manual_command.forward = forward;
+    g_host_link_manual_command.turn = turn;
+    g_host_link_manual_command.updated_at_ms = g_host_link_uptime_ms;
+    g_host_link_manual_command.valid = 1u;
+
+    HOSTLINK_SendAck(request->type, request->seq);
+}
+
+static void HOSTLINK_HandleEmergencyStop(const HostLinkPacket_t *request)
+{
+    uint16_t fault_code = 0x0001u;
+
+    if ((request->length != 0u) && (request->length != 1u))
+    {
+        HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_BAD_LENGTH);
+        return;
+    }
+
+    if (request->length == 1u)
+    {
+        fault_code = (uint16_t)request->payload[0];
+    }
+
+    HOSTLINK_ResetManualCommand();
+    g_host_link_health.active_fault_code = fault_code;
+    HOSTLINK_SetMode(HOST_LINK_MODE_FAULT);
+    HOSTLINK_SendAck(request->type, request->seq);
+}
+
+static void HOSTLINK_HandleClearFault(const HostLinkPacket_t *request)
+{
+    if (request->length != 0u)
+    {
+        HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_BAD_LENGTH);
+        return;
+    }
+
+    HOSTLINK_ResetManualCommand();
+    g_host_link_health.active_fault_code = 0u;
+    HOSTLINK_SetMode(HOST_LINK_MODE_IDLE);
+    HOSTLINK_SendAck(request->type, request->seq);
+}
+
 static void HOSTLINK_SendEvent(uint16_t event_code)
 {
     uint8_t payload[7];
@@ -633,7 +798,20 @@ static void HOSTLINK_SendControlFast(void)
     uint32_t timestamp_ms = g_host_link_uptime_ms;
     uint32_t control_cycle = g_host_link_uptime_ms;
     float zero = 0.0f;
-    uint8_t index;
+    float target_velocity = g_host_link_manual_command.forward;
+    float yaw_command = g_host_link_manual_command.turn;
+    float drive_output = 0.0f;
+    float yaw_output = 0.0f;
+    float motor_left_cmd = 0.0f;
+    float motor_right_cmd = 0.0f;
+
+    if ((g_host_link_mode == HOST_LINK_MODE_ARMED) && (g_host_link_manual_command.valid != 0u))
+    {
+        drive_output = target_velocity;
+        yaw_output = yaw_command;
+        motor_left_cmd = HOSTLINK_ClampUnit(target_velocity + yaw_command);
+        motor_right_cmd = HOSTLINK_ClampUnit(target_velocity - yaw_command);
+    }
 
     payload[offset++] = HOST_LINK_STREAM_CONTROL_FAST;
     memcpy(&payload[offset], &timestamp_ms, sizeof(timestamp_ms));
@@ -641,11 +819,17 @@ static void HOSTLINK_SendControlFast(void)
     memcpy(&payload[offset], &control_cycle, sizeof(control_cycle));
     offset = (uint16_t)(offset + sizeof(control_cycle));
     payload[offset++] = (uint8_t)g_host_link_mode;
-    for (index = 0u; index < 11u; ++index)
-    {
-        memcpy(&payload[offset], &zero, sizeof(float));
-        offset = (uint16_t)(offset + sizeof(float));
-    }
+    memcpy(&payload[offset], &zero, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &zero, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &zero, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &zero, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &zero, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &zero, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &target_velocity, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &drive_output, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &yaw_output, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &motor_left_cmd, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &motor_right_cmd, sizeof(float)); offset = (uint16_t)(offset + sizeof(float));
     (void)HOSTLINK_SendPacket(HOST_LINK_TYPE_TELEMETRY_SAMPLE, HOST_LINK_FLAG_STREAM, 0u, payload, offset);
 }
 
@@ -654,21 +838,101 @@ static void HOSTLINK_SendSensors(void)
     uint8_t payload[48];
     uint16_t offset = 0u;
     uint32_t timestamp_ms = g_host_link_uptime_ms;
-    uint16_t flags = 0u;
-    uint16_t age_ms = 0u;
-    float zero = 0.0f;
-    uint8_t index;
+    MOTION_SENSOR_Axes_t acc;
+    MOTION_SENSOR_Axes_t gyro;
+    FusionVector accelerometer;
+    FusionVector gyroscope;
+    FusionEuler euler;
+    FusionAhrsFlags flags;
+    FusionAhrsInternalStates states;
+    uint16_t ahrs_flags = 0u;
+    uint16_t age_ms;
+    float acc_x_g;
+    float acc_y_g;
+    float acc_z_g;
+    float gyro_x_dps;
+    float gyro_y_dps;
+    float gyro_z_dps;
+    float delta_time_s;
+
+    memset(&acc, 0, sizeof(acc));
+    memset(&gyro, 0, sizeof(gyro));
+    (void)BSP_MOTION_SENSOR_GetAxes(MOTION_SENSOR_ISM330DHCX_0, MOTION_ACCELERO, &acc);
+    (void)BSP_MOTION_SENSOR_GetAxes(MOTION_SENSOR_ISM330DHCX_0, MOTION_GYRO, &gyro);
+
+    acc_x_g = (float)acc.x / 1000.0f;
+    acc_y_g = (float)acc.y / 1000.0f;
+    acc_z_g = (float)acc.z / 1000.0f;
+    gyro_x_dps = (float)gyro.x / 1000.0f;
+    gyro_y_dps = (float)gyro.y / 1000.0f;
+    gyro_z_dps = (float)gyro.z / 1000.0f;
+
+    accelerometer.axis.x = acc_x_g;
+    accelerometer.axis.y = acc_y_g;
+    accelerometer.axis.z = acc_z_g;
+    gyroscope.axis.x = gyro_x_dps;
+    gyroscope.axis.y = gyro_y_dps;
+    gyroscope.axis.z = gyro_z_dps;
+
+    if (g_host_link_last_imu_tick_ms == 0u)
+    {
+        delta_time_s = 0.02f;
+    }
+    else
+    {
+        delta_time_s = (float)(timestamp_ms - g_host_link_last_imu_tick_ms) / 1000.0f;
+        if (delta_time_s <= 0.0f)
+        {
+            delta_time_s = 0.02f;
+        }
+    }
+    g_host_link_last_imu_tick_ms = timestamp_ms;
+
+    FusionAhrsUpdateNoMagnetometer(&g_host_link_fusion_ahrs, gyroscope, accelerometer, delta_time_s);
+    euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&g_host_link_fusion_ahrs));
+    flags = FusionAhrsGetFlags(&g_host_link_fusion_ahrs);
+    states = FusionAhrsGetInternalStates(&g_host_link_fusion_ahrs);
+    if (flags.initialising)
+    {
+        ahrs_flags |= 0x0001u;
+    }
+    if (flags.angularRateRecovery)
+    {
+        ahrs_flags |= 0x0002u;
+    }
+    if (flags.accelerationRecovery)
+    {
+        ahrs_flags |= 0x0004u;
+    }
+    if (states.accelerometerIgnored)
+    {
+        ahrs_flags |= 0x0008u;
+    }
+    age_ms = 0u;
 
     payload[offset++] = HOST_LINK_STREAM_SENSORS;
     memcpy(&payload[offset], &timestamp_ms, sizeof(timestamp_ms));
     offset = (uint16_t)(offset + sizeof(timestamp_ms));
-    for (index = 0u; index < 9u; ++index)
-    {
-        memcpy(&payload[offset], &zero, sizeof(float));
-        offset = (uint16_t)(offset + sizeof(float));
-    }
-    memcpy(&payload[offset], &flags, sizeof(flags));
-    offset = (uint16_t)(offset + sizeof(flags));
+    memcpy(&payload[offset], &acc_x_g, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &acc_y_g, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &acc_z_g, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &gyro_x_dps, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &gyro_y_dps, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &gyro_z_dps, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &euler.angle.pitch, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &euler.angle.roll, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &euler.angle.yaw, sizeof(float));
+    offset = (uint16_t)(offset + sizeof(float));
+    memcpy(&payload[offset], &ahrs_flags, sizeof(ahrs_flags));
+    offset = (uint16_t)(offset + sizeof(ahrs_flags));
     memcpy(&payload[offset], &age_ms, sizeof(age_ms));
     offset = (uint16_t)(offset + sizeof(age_ms));
     (void)HOSTLINK_SendPacket(HOST_LINK_TYPE_TELEMETRY_SAMPLE, HOST_LINK_FLAG_STREAM, 0u, payload, offset);
@@ -833,6 +1097,18 @@ static void HOSTLINK_HandleRequest(const HostLinkPacket_t *request)
         case HOST_LINK_TYPE_GET_STREAM_CONFIG:
             HOSTLINK_HandleGetStreamConfig(request);
             break;
+        case HOST_LINK_TYPE_SET_CONTROL_MODE:
+            HOSTLINK_HandleSetControlMode(request);
+            break;
+        case HOST_LINK_TYPE_SET_MANUAL_COMMAND:
+            HOSTLINK_HandleSetManualCommand(request);
+            break;
+        case HOST_LINK_TYPE_EMERGENCY_STOP:
+            HOSTLINK_HandleEmergencyStop(request);
+            break;
+        case HOST_LINK_TYPE_CLEAR_FAULT:
+            HOSTLINK_HandleClearFault(request);
+            break;
         default:
             HOSTLINK_SendNack(request->type, request->seq, HOST_LINK_ERR_UNKNOWN_TYPE);
             break;
@@ -846,6 +1122,8 @@ void HOSTLINK_Init(void)
 
     memset(&g_host_link_health, 0, sizeof(g_host_link_health));
     MX_USART1_UART_Init();
+    HOSTLINK_InitFusion();
+    HOSTLINK_ResetManualCommand();
 
     HOSTLINK_Params_ResetDefaults(HOSTLINK_Params_CurrentMutable());
     if (HOSTLINK_Storage_Load(&persisted) == BSP_ERROR_NONE)

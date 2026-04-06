@@ -9,12 +9,20 @@ No Qt UI calls are made from this thread.
 from __future__ import annotations
 
 
+import time as _time
+
 import serial
 from PySide6.QtCore import QThread, Signal
 
+_BYTES_SIGNAL_INTERVAL = 0.25   # emit bytes_received at most 4×/sec
+
 from monitor.serial.protocol import FrameParser, Packet
 
-_READ_TIMEOUT_S  = 0.05   # serial read timeout (non-blocking chunks)
+_READ_TIMEOUT_S       = 0.05   # total read timeout — fallback when port is idle
+_INTER_BYTE_TIMEOUT_S = 0.002  # return read() as soon as 2 ms pass with no new byte;
+                                # this gives Windows ReadIntervalTimeout=2 ms so a full
+                                # USB-CDC packet (all bytes in one transfer) is returned
+                                # as one chunk with ≤ 2 ms latency instead of 50 ms.
 _CHUNK_SIZE      = 256
 # Note: there is NO idle-silence timeout here.
 # Physical disconnect is detected via SerialException on the next read.
@@ -47,6 +55,7 @@ class SerialReaderThread(QThread):
         self._baud   = baud
         self._stop   = False
         self._parser = FrameParser()
+        self._last_bytes_emit: float = 0.0
 
     # ── Public API ───────────────────────────────────────────────────────────
     def stop(self) -> None:
@@ -74,10 +83,15 @@ class SerialReaderThread(QThread):
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 timeout=_READ_TIMEOUT_S,
+                inter_byte_timeout=_INTER_BYTE_TIMEOUT_S,
             )
         except serial.SerialException:
             self.link_lost.emit()
             return
+
+        # Flush any data that accumulated in the ST-LINK/OS buffer before
+        # the port was opened (typically several seconds of stale frames).
+        self._serial.reset_input_buffer()
 
         prev_crc_errors = 0
         total_rx_bytes  = 0
@@ -93,7 +107,10 @@ class SerialReaderThread(QThread):
 
             if chunk:
                 total_rx_bytes += len(chunk)
-                self.bytes_received.emit(total_rx_bytes)
+                now = _time.monotonic()
+                if now - self._last_bytes_emit >= _BYTES_SIGNAL_INTERVAL:
+                    self._last_bytes_emit = now
+                    self.bytes_received.emit(total_rx_bytes)
                 self.raw_chunk.emit(bytes(chunk))
                 self._parser.push(chunk)
 

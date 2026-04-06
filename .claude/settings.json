@@ -9,7 +9,13 @@
       "Bash(py -3.11 -m pytest tests/test_protocol.py tests/test_ring_buffer.py tests/test_telemetry.py -v)",
       "Bash(py -3.11 -m pytest tests/test_parameters.py -v)",
       "Bash(py -3.11 -c \"from monitor.ui.main_window import MainWindow; print\\(''import OK''\\)\")",
-      "Bash(py -3.11 -c \"from monitor.ui.main_window import MainWindow; print\\(''OK''\\)\")"
+      "Bash(py -3.11 -c \"from monitor.ui.main_window import MainWindow; print\\(''OK''\\)\")",
+      "Bash(python -c \"from monitor.serial.protocol import FrameRecord, decode_payload_fields, NACK_ERROR_NAMES; print\\(''protocol OK''\\)\")",
+      "Bash(python -c \"from monitor.model.session import Session; print\\(''session OK''\\)\")",
+      "Bash(python -c \"from monitor.ui.frame_inspector import FrameInspector; print\\(''frame_inspector OK''\\)\")",
+      "Bash(py -3 -c \"from monitor.serial.protocol import FrameRecord, decode_payload_fields, NACK_ERROR_NAMES; print\\(''protocol OK''\\)\")",
+      "Bash(py -3 -c \"from monitor.model.session import Session; print\\(''session OK''\\)\")",
+      "Bash(py -3 -c \"from monitor.ui.frame_inspector import FrameInspector; print\\(''frame_inspector OK''\\)\")"
     ]
   }
 }

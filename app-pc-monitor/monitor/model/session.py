@@ -14,7 +14,8 @@ from enum import Enum
 from PySide6.QtCore import QObject, Signal, QTimer
 
 from monitor.serial.protocol import (
-    MsgType, Packet,
+    MsgType, Packet, FrameRecord, NACK_ERROR_NAMES,
+    decode_payload_fields, HEADER_SIZE, FOOTER_SIZE,
     make_ping, make_get_device_info, make_get_parameter_table,
     make_set_stream_config, make_write_parameter, make_save_parameters,
     make_load_parameters, make_set_control_mode, make_set_manual_command,
@@ -76,21 +77,7 @@ class ConnectionState(Enum):
     CONNECTED    = "CONNECTED"
 
 
-# ── NACK error code table ─────────────────────────────────────────────────────
-# These are best-guess names based on common embedded protocol conventions.
-# The firmware team should confirm / correct these definitions.
-_NACK_ERROR_NAMES: dict[int, str] = {
-    0x01: "ERR_UNKNOWN_TYPE",
-    0x02: "ERR_INVALID_LENGTH",
-    0x03: "ERR_INVALID_STATE",     # device not in a mode that accepts this command
-    0x04: "ERR_NOT_READY",         # subsystem not initialised yet, or busy
-    0x05: "ERR_INVALID_PARAM",     # parameter value out of range or unknown ID
-    0x06: "ERR_ACCESS_DENIED",     # read-only parameter or protected command
-    0x07: "ERR_CHECKSUM",
-    0x08: "ERR_TIMEOUT",
-    0x09: "ERR_OVERFLOW",
-    0xFF: "ERR_GENERIC",
-}
+# NACK_ERROR_NAMES imported from protocol.py
 
 
 def _nack_context(nacked_type: int, error_code: int) -> str:
@@ -153,6 +140,7 @@ class Session(QObject):
     capture_data_chunk         = Signal(bytes)
     pong_received              = Signal(int)   # round-trip latency ms
     rx_activity                = Signal(int)   # cumulative RX bytes
+    frame_captured             = Signal(object)  # FrameRecord (TX and RX)
 
     def __init__(self, param_model: ParameterModel, parent=None) -> None:
         super().__init__(parent)
@@ -186,6 +174,13 @@ class Session(QObject):
 
         # Telemetry sample counters per stream (for log rate limiting)
         self._telem_counts: dict[int, int] = {}
+
+        # Rate-limit raw-chunk hex dumps once connected (max 2/sec)
+        self._last_raw_log_ts: float = 0.0
+
+        # Whether to forward TELEMETRY_SAMPLE/BURST to the frame inspector.
+        # Disabled by default: at 50+ Hz those frames flood the inspector table.
+        self._capture_telemetry_frames: bool = False
 
         self._param_model.parameter_write_requested.connect(
             self._on_parameter_write_requested
@@ -231,17 +226,48 @@ class Session(QObject):
             self._log_tx(data)
 
     def _log_tx(self, data: bytes) -> None:
-        """Log every outgoing frame at DEBUG level with decoded type name."""
-        if len(data) < 4:
+        """Log and emit a FrameRecord for every outgoing frame."""
+        if len(data) < HEADER_SIZE + FOOTER_SIZE:
             self._log(3, "COMM", f"TX {len(data)}B (malformed): {data.hex(' ').upper()}")
             return
         msg_type_byte = data[3]
+        flags         = data[4]
+        seq           = data[5]
+        payload_len   = data[6] | (data[7] << 8)
+        payload       = data[8:8 + payload_len]
         try:
             name = MsgType(msg_type_byte).name
         except ValueError:
             name = f"UNKNOWN_0x{msg_type_byte:02X}"
-        hex_str = data.hex(" ").upper()
-        self._log(3, "COMM", f"TX {len(data)}B [{name}]: {hex_str}")
+        fields  = decode_payload_fields(msg_type_byte, payload)
+        summary = "  ".join(f"{k}={v}" for k, v in fields.items())
+        self._log(3, "COMM",
+                  f"TX {len(data)}B [{name}] seq={seq}"
+                  + (f"  {summary}" if summary else "")
+                  + f"  | {data.hex(' ').upper()}")
+        ts_ms = int(time.monotonic() * 1000)
+        self.frame_captured.emit(
+            FrameRecord(ts_ms=ts_ms, direction="TX", type_name=name,
+                        seq=seq, flags=flags, payload=payload,
+                        raw=data, fields=fields)
+        )
+
+    def _emit_rx_frame(self, pkt: Packet) -> None:
+        """Emit a FrameRecord for every received packet.
+        Telemetry stream packets are skipped unless _capture_telemetry_frames
+        is enabled — at 50+ Hz they would flood the Frame Inspector."""
+        mt = pkt.msg_type
+        if mt in (MsgType.TELEMETRY_SAMPLE, MsgType.TELEMETRY_BURST):
+            if not self._capture_telemetry_frames:
+                return
+        type_name = mt.name if mt else f"0x{pkt.type:02X}"
+        fields    = decode_payload_fields(pkt.type, pkt.payload)
+        ts_ms     = int(time.monotonic() * 1000)
+        self.frame_captured.emit(
+            FrameRecord(ts_ms=ts_ms, direction="RX", type_name=type_name,
+                        seq=pkt.seq, flags=pkt.flags, payload=pkt.payload,
+                        raw=b"", fields=fields)
+        )
 
     # ── Stream helpers ────────────────────────────────────────────────────────
     def enable_stream(self, stream_id: int, period_ms: int) -> None:
@@ -333,36 +359,46 @@ class Session(QObject):
         self.log_received.emit(ts_ms, level, module_idx, text)
 
     def _on_raw_chunk(self, chunk: bytes) -> None:
-        """Log every raw RX chunk as a hex dump at TRACE level."""
-        # Detect printable ASCII in the chunk — common sign that the firmware
-        # is sending plain printf/text instead of binary frames.
+        """Log raw RX chunks. Rate-limited once connected to avoid flooding the log."""
+        if chunk.startswith(b"[DISCONNECT]"):
+            self._log(1, "COMM", chunk.decode(errors="replace"))
+            return
+
+        # ASCII detection — always check regardless of rate limit
         try:
-            text = chunk.decode("ascii")
+            text    = chunk.decode("ascii")
             printable = all(0x20 <= c < 0x7F or c in (0x0A, 0x0D) for c in chunk)
         except Exception:
             printable = False
             text = ""
 
-        hex_str = chunk.hex(" ").upper() if len(chunk) <= 64 \
-                  else chunk[:64].hex(" ").upper() + f" … (+{len(chunk)-64}B)"
-
-        if chunk.startswith(b"[DISCONNECT]"):
-            # Diagnostic sentinel emitted by the reader thread on exit
-            self._log(1, "COMM", chunk.decode(errors="replace"))
-            return
-
-        if printable and text.strip():
-            # Firmware is sending human-readable text — very important diagnostic
+        # Require at least 4 bytes: a single printable byte (e.g. 0x33 = EOF
+        # frame marker) must not be mistaken for printf/text output.
+        if printable and text.strip() and len(chunk) >= 4:
             self._log(1, "COMM",
                       f"⚠ RAW ASCII from firmware ({len(chunk)}B): "
                       f"{repr(text.rstrip())}")
             self._log(1, "COMM",
                       "  → Firmware appears to be sending printf/text output. "
                       "Binary framing (SOF=0xAA 0x55) not yet active.")
-        else:
-            self._log(4, "COMM", f"RX {len(chunk)}B: {hex_str}")
+            return
 
-        # Check if SOF bytes are present anywhere in the chunk
+        # Once CONNECTED: emit TRACE hex at most 2×/sec — high-rate streams would
+        # otherwise flood the log with hundreds of lines per second.
+        if self._state == ConnectionState.CONNECTED:
+            now = time.monotonic()
+            if now - self._last_raw_log_ts >= 0.5:
+                self._last_raw_log_ts = now
+                hex_str = chunk.hex(" ").upper() if len(chunk) <= 32 \
+                          else chunk[:32].hex(" ").upper() + f" … (+{len(chunk)-32}B)"
+                self._log(4, "COMM", f"RX {len(chunk)}B: {hex_str}")
+            return
+
+        # During CONNECTING/DISCONNECTED: full verbosity for handshake debugging
+        hex_str = chunk.hex(" ").upper() if len(chunk) <= 64 \
+                  else chunk[:64].hex(" ").upper() + f" … (+{len(chunk)-64}B)"
+        self._log(4, "COMM", f"RX {len(chunk)}B: {hex_str}")
+
         if b"\xAA\x55" not in chunk and len(chunk) > 4:
             self._log(3, "COMM",
                       f"  → No SOF marker (AA 55) found in this chunk. "
@@ -403,6 +439,7 @@ class Session(QObject):
         self._set_state(ConnectionState.DISCONNECTED)
 
     def _on_packet(self, pkt: Packet) -> None:
+        self._emit_rx_frame(pkt)
         mt = pkt.msg_type
         p  = pkt.payload
 
@@ -541,8 +578,8 @@ class Session(QObject):
                     type_name = MsgType(nacked_type).name
                 except ValueError:
                     type_name = f"0x{nacked_type:02X}"
-                err_label = _NACK_ERROR_NAMES.get(error_code,
-                                                  f"UNKNOWN_0x{error_code:02X}")
+                err_label = NACK_ERROR_NAMES.get(error_code,
+                                               f"UNKNOWN_0x{error_code:02X}")
                 self._log(0, "COMM",
                           f"NACK  cmd=[{type_name}]  seq={nacked_seq}"
                           f"  error={error_code} ({err_label})"

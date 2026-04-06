@@ -78,6 +78,13 @@ class RingBuffer:
         return self._times[order].copy(), self._vals[order].copy()
 
     @property
+    def latest_time(self) -> float | None:
+        """Return the most recently pushed timestamp, or None if empty."""
+        if self._count == 0:
+            return None
+        return float(self._times[(self._head - 1) % self._cap])
+
+    @property
     def count(self) -> int:
         return self._count
 

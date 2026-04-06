@@ -143,6 +143,187 @@ def reset_seq() -> None:
     _seq_counter = 0
 
 
+# ── NACK error code names (shared with session and frame inspector) ───────────
+NACK_ERROR_NAMES: dict[int, str] = {
+    0x01: "ERR_UNKNOWN_TYPE",
+    0x02: "ERR_INVALID_LENGTH",
+    0x03: "ERR_INVALID_STATE",
+    0x04: "ERR_NOT_READY",
+    0x05: "ERR_INVALID_PARAM",
+    0x06: "ERR_ACCESS_DENIED",
+    0x07: "ERR_CHECKSUM",
+    0x08: "ERR_TIMEOUT",
+    0x09: "ERR_OVERFLOW",
+    0xFF: "ERR_GENERIC",
+}
+
+
+def _type_name(v: int) -> str:
+    try:
+        return MsgType(v).name
+    except ValueError:
+        return f"0x{v:02X}"
+
+
+def _fmt_duration(ms: int) -> str:
+    if ms < 1_000:
+        return f"{ms}ms"
+    if ms < 60_000:
+        return f"{ms / 1000:.1f}s"
+    if ms < 3_600_000:
+        return f"{ms // 60_000}m{(ms % 60_000) // 1000}s"
+    return f"{ms // 3_600_000}h{(ms % 3_600_000) // 60_000}m"
+
+
+def decode_payload_fields(msg_type_int: int, payload: bytes) -> dict[str, str]:
+    """Return human-readable field name → value for each known message type."""
+    try:
+        mt = MsgType(msg_type_int)
+    except ValueError:
+        return {"raw": payload.hex(" ").upper()} if payload else {}
+
+    p = payload
+    f: dict[str, str] = {}
+
+    if mt == MsgType.PONG:
+        if len(p) >= 4:
+            uptime_ms = struct.unpack_from("<I", p, 0)[0]
+            f["uptime_ms"] = str(uptime_ms)
+            f["uptime"]    = _fmt_duration(uptime_ms)
+        if len(p) >= 5:
+            f["proto_ver"] = f"0x{p[4]:02X}"
+
+    elif mt == MsgType.DEVICE_INFO:
+        if len(p) >= 3:
+            f["fw_ver"] = f"{p[0]}.{p[1]}.{p[2]}"
+        if len(p) >= 5:
+            f["capabilities"] = f"0x{struct.unpack_from('<H', p, 3)[0]:04X}"
+
+    elif mt == MsgType.ACK:
+        if len(p) >= 2:
+            f["acked"] = _type_name(p[0])
+            f["seq"]   = str(p[1])
+
+    elif mt == MsgType.NACK:
+        if len(p) >= 3:
+            f["nacked"] = _type_name(p[0])
+            f["seq"]    = str(p[1])
+            ec = p[2]
+            f["error"]  = f"{ec} ({NACK_ERROR_NAMES.get(ec, '?')})"
+
+    elif mt in (MsgType.SET_STREAM_CONFIG, MsgType.STREAM_CONFIG):
+        if len(p) >= 4:
+            sid, enable, period = struct.unpack_from("<BBH", p)
+            f["stream_id"] = f"0x{sid:02X}"
+            f["enable"]    = "true" if enable else "false"
+            f["period_ms"] = str(period)
+        elif p:
+            f["stream_id"] = f"0x{p[0]:02X}"
+
+    elif mt == MsgType.GET_STREAM_CONFIG:
+        if p:
+            f["stream_id"] = f"0x{p[0]:02X}"
+
+    elif mt == MsgType.TELEMETRY_SAMPLE:
+        if p:
+            f["stream_id"]   = f"0x{p[0]:02X}"
+            f["payload_len"] = str(len(p) - 1)
+
+    elif mt == MsgType.TELEMETRY_BURST:
+        if p:
+            f["stream_id"] = f"0x{p[0]:02X}"
+            f["len"]       = str(len(p))
+
+    elif mt == MsgType.READ_PARAMETER:
+        if len(p) >= 2:
+            f["param_id"] = f"0x{struct.unpack_from('<H', p)[0]:04X}"
+
+    elif mt in (MsgType.WRITE_PARAMETER, MsgType.PARAMETER_VALUE):
+        if len(p) >= 2:
+            f["param_id"]  = f"0x{struct.unpack_from('<H', p)[0]:04X}"
+            f["value_raw"] = p[2:].hex(" ").upper() if len(p) > 2 else ""
+
+    elif mt == MsgType.LOAD_PARAMETERS:
+        if p:
+            f["slot"] = str(p[0])
+
+    elif mt == MsgType.SET_CONTROL_MODE:
+        if p:
+            f["mode"] = str(p[0])
+
+    elif mt == MsgType.SET_MANUAL_COMMAND:
+        if len(p) >= 8:
+            fwd, turn = struct.unpack_from("<ff", p)
+            f["forward"] = f"{fwd:.3f}"
+            f["turn"]    = f"{turn:.3f}"
+
+    elif mt == MsgType.EMERGENCY_STOP:
+        if p:
+            f["reason"] = str(p[0])
+
+    elif mt == MsgType.START_TEST:
+        if p:
+            f["test_id"] = str(p[0])
+            if len(p) > 1:
+                f["args"] = p[1:].hex(" ").upper()
+
+    elif mt == MsgType.SET_LOG_LEVEL:
+        if p:
+            f["level"] = str(p[0])
+
+    elif mt == MsgType.EVENT:
+        if len(p) >= 2:
+            code = struct.unpack_from("<H", p)[0]
+            f["event_code"] = f"0x{code:04X}"
+            if len(p) > 2:
+                f["context_len"] = str(len(p) - 2)
+
+    elif mt == MsgType.FAULT:
+        if len(p) >= 2:
+            code = struct.unpack_from("<H", p)[0]
+            f["fault_code"] = f"0x{code:04X}"
+
+    elif mt == MsgType.LOG_TEXT:
+        if len(p) >= 4:
+            f["ts_ms"] = str(struct.unpack_from("<I", p)[0])
+        if len(p) > 4:
+            f["level"]  = str(p[4])
+        if len(p) > 5:
+            f["module"] = str(p[5])
+
+    elif mt == MsgType.CAPTURE_CONFIG:
+        if len(p) >= 6:
+            trigger, sig_mask, pre, post = struct.unpack_from("<BBHH", p)
+            f["trigger"]      = str(trigger)
+            f["signal_mask"]  = f"0x{sig_mask:02X}"
+            f["pre_samples"]  = str(pre)
+            f["post_samples"] = str(post)
+
+    elif mt == MsgType.CAPTURE_STATUS:
+        if p:
+            status_map = {0: "IDLE", 1: "ARMED", 2: "TRIGGERED", 3: "DONE"}
+            f["status"] = status_map.get(p[0], f"0x{p[0]:02X}")
+
+    return f
+
+
+# ── FrameRecord (for Frame Inspector panel) ───────────────────────────────────
+from dataclasses import dataclass as _dc, field as _field
+
+
+@_dc
+class FrameRecord:
+    """One captured TX or RX frame, with decoded fields."""
+    ts_ms:     int
+    direction: str          # "TX" or "RX"
+    type_name: str
+    seq:       int
+    flags:     int
+    payload:   bytes
+    raw:       bytes        # full frame bytes (TX) or empty (RX)
+    fields:    dict         # str → str decoded payload fields
+
+
 # ── Decoder / frame parser ────────────────────────────────────────────────────
 class ParseError(Exception):
     pass

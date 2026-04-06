@@ -23,6 +23,7 @@ from monitor.ui.commands_panel import CommandsPanel
 from monitor.ui.faults_panel import FaultsPanel
 from monitor.ui.log_panel import LogPanel
 from monitor.ui.capture_panel import CapturePanel
+from monitor.ui.frame_inspector import FrameInspector
 
 
 def _dock(title: str, widget: QWidget,
@@ -57,6 +58,7 @@ class MainWindow(QMainWindow):
         self._faults     = FaultsPanel()
         self._log        = LogPanel()
         self._capture    = CapturePanel()
+        self._frames     = FrameInspector()
 
         # ── Central widget (tabbed: Telemetry + Capture) ──────────────────
         central_tabs = QTabWidget()
@@ -71,21 +73,25 @@ class MainWindow(QMainWindow):
         toolbar_dock.addWidget(self._toolbar)
 
         # ── Dock panels ───────────────────────────────────────────────────
-        self._params_dock  = _dock("Parameters",    self._parameters, Qt.RightDockWidgetArea)
-        self._cmd_dock     = _dock("Commands",      self._commands,   Qt.LeftDockWidgetArea)
-        self._faults_dock  = _dock("Events & Faults", self._faults,  Qt.BottomDockWidgetArea)
-        self._log_dock     = _dock("Log",           self._log,        Qt.BottomDockWidgetArea)
+        self._params_dock  = _dock("Parameters",      self._parameters, Qt.RightDockWidgetArea)
+        self._cmd_dock     = _dock("Commands",        self._commands,   Qt.LeftDockWidgetArea)
+        self._faults_dock  = _dock("Events & Faults", self._faults,    Qt.BottomDockWidgetArea)
+        self._log_dock     = _dock("Log",             self._log,        Qt.BottomDockWidgetArea)
+        self._frames_dock  = _dock("Frame Inspector", self._frames,     Qt.BottomDockWidgetArea)
 
         self._params_dock.setObjectName("dock_parameters")
         self._cmd_dock.setObjectName("dock_commands")
         self._faults_dock.setObjectName("dock_faults")
         self._log_dock.setObjectName("dock_log")
+        self._frames_dock.setObjectName("dock_frames")
 
         self.addDockWidget(Qt.RightDockWidgetArea,  self._params_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea,   self._cmd_dock)
         self.addDockWidget(Qt.BottomDockWidgetArea, self._faults_dock)
         self.addDockWidget(Qt.BottomDockWidgetArea, self._log_dock)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self._frames_dock)
         self.tabifyDockWidget(self._faults_dock, self._log_dock)
+        self.tabifyDockWidget(self._log_dock,    self._frames_dock)
 
         # ── Menu bar ──────────────────────────────────────────────────────
         self._build_menu()
@@ -124,6 +130,7 @@ class MainWindow(QMainWindow):
             (self._cmd_dock,     "Commands"),
             (self._faults_dock,  "Events & Faults"),
             (self._log_dock,     "Log"),
+            (self._frames_dock,  "Frame Inspector"),
         ]:
             act = dock.toggleViewAction()
             act.setText(label)
@@ -162,6 +169,7 @@ class MainWindow(QMainWindow):
         s.log_received.connect(self._log.on_log)
         s.capture_status_changed.connect(self._capture.on_status_changed)
         s.capture_data_chunk.connect(self._capture.on_data_chunk)
+        s.frame_captured.connect(self._frames.on_frame)
 
         # Telemetry stream enable/disable
         self._telemetry.stream_enable_changed.connect(
