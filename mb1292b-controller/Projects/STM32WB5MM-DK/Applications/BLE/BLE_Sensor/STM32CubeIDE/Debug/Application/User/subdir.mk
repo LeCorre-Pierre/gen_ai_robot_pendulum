@@ -9,6 +9,7 @@ S_SRCS += \
 
 C_SRCS += \
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/main.c \
+D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/periph_init.c \
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_hal_msp.c \
 D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/stm32wbxx_it.c \
 ../Application/User/syscalls.c \
@@ -16,6 +17,7 @@ D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Appl
 
 OBJS += \
 ./Application/User/main.o \
+./Application/User/periph_init.o \
 ./Application/User/startup_stm32wb5mmghx.o \
 ./Application/User/stm32wbxx_hal_msp.o \
 ./Application/User/stm32wbxx_it.o \
@@ -27,6 +29,7 @@ S_DEPS += \
 
 C_DEPS += \
 ./Application/User/main.d \
+./Application/User/periph_init.d \
 ./Application/User/stm32wbxx_hal_msp.d \
 ./Application/User/stm32wbxx_it.d \
 ./Application/User/syscalls.d \
@@ -35,6 +38,8 @@ C_DEPS += \
 
 # Each subdirectory must supply rules for building sources it contributes
 Application/User/main.o: D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/main.c Application/User/subdir.mk
+	arm-none-eabi-gcc "$<" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_STM32WB5M_DK -DSTM32WB5Mxx -DUSE_HAL_DRIVER -c -I../../../../../../../Drivers/BSP/Components/Common -I../../../../../../../Drivers/BSP/Components/ism330dhcx -I../../../../../../../Drivers/BSP/Components/s25fl128s -I../../../../../../../Drivers/BSP/Components/ssd1315 -I../../../../../../../Drivers/BSP/Components/stts22h -I../../../../../../../Drivers/BSP/STM32WB5MM-DK -I../../../../../../../Drivers/CMSIS/DSP/Include -I../../../../../../../Drivers/CMSIS/DSP/Source/FilteringFunctions -I../../../../../../../Drivers/CMSIS/Device/ST/STM32WBxx/Include -I../../../../../../../Drivers/CMSIS/Include -I../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc -I../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/Legacy -I../../../../../../../Middlewares/ST/STM32_Audio/Addons/PDM/Inc -I../../../../../../../Middlewares/ST/STM32_USB_Device_Library/Class/AUDIO/Inc -I../../../../../../../Middlewares/ST/STM32_WPAN -I../../../../../../../Middlewares/ST/STM32_WPAN/ble -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/core -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/core/auto -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/core/template -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/svc/Inc -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/svc/Src -I../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread -I../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/shci -I../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/tl -I../../../../../../../Middlewares/ST/STM32_WPAN/utilities -I../../../../../../../Utilities/Fonts -I../../../../../../../Utilities/Fusion/Fusion -I../../../../../../../Utilities/LCD -I../../../../../../../Utilities/lpm/tiny_lpm -I../../../../../../../Utilities/sequencer -I../../Core/Inc -I../../Core/Src/vl53l0x -I../../STM32_WPAN/App -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@"
+Application/User/periph_init.o: D:/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/Core/Src/periph_init.c Application/User/subdir.mk
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_STM32WB5M_DK -DSTM32WB5Mxx -DUSE_HAL_DRIVER -c -I../../../../../../../Drivers/BSP/Components/Common -I../../../../../../../Drivers/BSP/Components/ism330dhcx -I../../../../../../../Drivers/BSP/Components/s25fl128s -I../../../../../../../Drivers/BSP/Components/ssd1315 -I../../../../../../../Drivers/BSP/Components/stts22h -I../../../../../../../Drivers/BSP/STM32WB5MM-DK -I../../../../../../../Drivers/CMSIS/DSP/Include -I../../../../../../../Drivers/CMSIS/DSP/Source/FilteringFunctions -I../../../../../../../Drivers/CMSIS/Device/ST/STM32WBxx/Include -I../../../../../../../Drivers/CMSIS/Include -I../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc -I../../../../../../../Drivers/STM32WBxx_HAL_Driver/Inc/Legacy -I../../../../../../../Middlewares/ST/STM32_Audio/Addons/PDM/Inc -I../../../../../../../Middlewares/ST/STM32_USB_Device_Library/Class/AUDIO/Inc -I../../../../../../../Middlewares/ST/STM32_WPAN -I../../../../../../../Middlewares/ST/STM32_WPAN/ble -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/core -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/core/auto -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/core/template -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/svc/Inc -I../../../../../../../Middlewares/ST/STM32_WPAN/ble/svc/Src -I../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread -I../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/shci -I../../../../../../../Middlewares/ST/STM32_WPAN/interface/patterns/ble_thread/tl -I../../../../../../../Middlewares/ST/STM32_WPAN/utilities -I../../../../../../../Utilities/Fonts -I../../../../../../../Utilities/Fusion/Fusion -I../../../../../../../Utilities/LCD -I../../../../../../../Utilities/lpm/tiny_lpm -I../../../../../../../Utilities/sequencer -I../../Core/Inc -I../../Core/Src/vl53l0x -I../../STM32_WPAN/App -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@"
 Application/User/%.o: ../Application/User/%.s Application/User/subdir.mk
 	arm-none-eabi-gcc -mcpu=cortex-m4 -g3 -c -x assembler-with-cpp -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@" "$<"
@@ -48,7 +53,7 @@ Application/User/%.o Application/User/%.su Application/User/%.cyclo: ../Applicat
 clean: clean-Application-2f-User
 
 clean-Application-2f-User:
-	-$(RM) ./Application/User/main.cyclo ./Application/User/main.d ./Application/User/main.o ./Application/User/main.su ./Application/User/startup_stm32wb5mmghx.d ./Application/User/startup_stm32wb5mmghx.o ./Application/User/stm32wbxx_hal_msp.cyclo ./Application/User/stm32wbxx_hal_msp.d ./Application/User/stm32wbxx_hal_msp.o ./Application/User/stm32wbxx_hal_msp.su ./Application/User/stm32wbxx_it.cyclo ./Application/User/stm32wbxx_it.d ./Application/User/stm32wbxx_it.o ./Application/User/stm32wbxx_it.su ./Application/User/syscalls.cyclo ./Application/User/syscalls.d ./Application/User/syscalls.o ./Application/User/syscalls.su ./Application/User/sysmem.cyclo ./Application/User/sysmem.d ./Application/User/sysmem.o ./Application/User/sysmem.su
+	-$(RM) ./Application/User/main.cyclo ./Application/User/main.d ./Application/User/main.o ./Application/User/main.su ./Application/User/periph_init.cyclo ./Application/User/periph_init.d ./Application/User/periph_init.o ./Application/User/periph_init.su ./Application/User/startup_stm32wb5mmghx.d ./Application/User/startup_stm32wb5mmghx.o ./Application/User/stm32wbxx_hal_msp.cyclo ./Application/User/stm32wbxx_hal_msp.d ./Application/User/stm32wbxx_hal_msp.o ./Application/User/stm32wbxx_hal_msp.su ./Application/User/stm32wbxx_it.cyclo ./Application/User/stm32wbxx_it.d ./Application/User/stm32wbxx_it.o ./Application/User/stm32wbxx_it.su ./Application/User/syscalls.cyclo ./Application/User/syscalls.d ./Application/User/syscalls.o ./Application/User/syscalls.su ./Application/User/sysmem.cyclo ./Application/User/sysmem.d ./Application/User/sysmem.o ./Application/User/sysmem.su
 
 .PHONY: clean-Application-2f-User
 
