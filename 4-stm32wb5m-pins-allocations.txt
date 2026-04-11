@@ -1,0 +1,165 @@
+STM32WB5MMG pin allocation
+Version: 0.3 — 2026-04-11
+
+==============================================================
+1. Peripheral usage
+==============================================================
+
+| Peripheral | Role                        | Pins                        |
+|------------|-----------------------------|-----------------------------|
+| TIM1       | Left encoder (QEI)          | PD14=CH1, PD15=CH2          |
+| TIM2       | Right encoder (QEI)         | PA15=CH1, PB3=CH2           |
+| TIM16      | Right motor PWM             | PE0=CH1                     |
+| LPTIM1     | Left motor PWM              | PC1=OUT                     |
+| USART1     | ST-Link VCP (PC interface)  | PB6=TX, PB7=RX              |
+| I2C3       | IMU ISM330DHCX              | PB13=SCL, PB11=SDA          |
+| ADC1       | Motor current sensing       | PA5=IN10, PC3=IN4           |
+| SPI1       | OLED display (native)       | PA1=SCK, PA7=MOSI, PB4=MISO |
+| QUADSPI    | Flash memory (native)       | PA3, PB9, PD3, PD5, PD6, PD7 |
+| I2C1       | Native board sensors        | PB8=SCL, PA10=SDA           |
+
+Note on encoder timers and PWM sharing:
+  In encoder interface mode (SMS bits), TIMx_CNT is clocked by encoder pulses,
+  not by CK_INT. The counter represents position, not time. Output compare on
+  CH3/CH4 of an encoder timer cannot produce a fixed-frequency PWM signal.
+  TIM1 and TIM2 are therefore exclusively dedicated to their encoder functions.
+  LPTIM1 (PCLK1=64 MHz, ARR=3200) delivers 20 kHz PWM at 11.6-bit resolution.
+
+Note on LPTIM1:
+  The .ioc originally had LPTIM1 in counterModeInternalClock (MB1292B demo
+  firmware). This must be replaced by continuous PWM output on PC1.
+
+
+==============================================================
+2. Pin allocation
+==============================================================
+
+------------------------------------------------------------
+2.1 Left encoder
+------------------------------------------------------------
+
+| Function       | Signal        | Pin  | Connector    | Peripheral  |
+|----------------|---------------|------|--------------|-------------|
+| Left enc CHA   | ENC_LEFT_CHA  | PD14 | Arduino D3   | TIM1_CH1    |
+| Left enc CHB   | ENC_LEFT_CHB  | PD15 | Arduino D9   | TIM1_CH2    |
+
+------------------------------------------------------------
+2.2 Right encoder
+------------------------------------------------------------
+
+| Function       | Signal         | Pin  | Connector      | Peripheral |
+|----------------|----------------|------|----------------|------------|
+| Right enc CHA  | ENC_RIGHT_CHA  | PA15 | STMod+ pin 14  | TIM2_CH1   |
+| Right enc CHB  | ENC_RIGHT_CHB  | PB3  | Direct-fit     | TIM2_CH2   |
+
+PB3 conflicts with SWO. SWO debug trace must be disabled in firmware configuration.
+
+------------------------------------------------------------
+2.3 Motor PWM
+------------------------------------------------------------
+
+| Function        | Signal           | Pin  | Connector  | Peripheral  |
+|-----------------|------------------|------|------------|-------------|
+| Left motor PWM  | MOTOR_LEFT_PWM   | PC1  | Arduino A3 | LPTIM1_OUT  |
+| Right motor PWM | MOTOR_RIGHT_PWM  | PE0  | Arduino D6 | TIM16_CH1   |
+
+------------------------------------------------------------
+2.4 Motor direction and brake
+------------------------------------------------------------
+
+| Function        | Signal              | Pin  | Connector  | Type        |
+|-----------------|---------------------|------|------------|-------------|
+| Left direction  | MOTOR_LEFT_DIR      | PD12 | Arduino D2 | GPIO output |
+| Left brake      | MOTOR_LEFT_BRAKE    | PD13 | Arduino D8 | GPIO output |
+| Right direction | MOTOR_RIGHT_DIR     | PE3  | Arduino D4 | GPIO output |
+| Right brake     | MOTOR_RIGHT_BRAKE   | PB2  | Arduino D7 | GPIO output |
+
+------------------------------------------------------------
+2.5 Motor current sensing
+------------------------------------------------------------
+
+| Function              | Signal                      | Pin  | Connector  | ADC channel |
+|-----------------------|-----------------------------|------|------------|-------------|
+| Left current sense    | MOTOR_LEFT_CURRENT_SENSE    | PA5  | Arduino A2 | ADC1_IN10   |
+| Right current sense   | MOTOR_RIGHT_CURRENT_SENSE   | PC3  | Arduino A0 | ADC1_IN4    |
+
+------------------------------------------------------------
+2.6 PC communication
+------------------------------------------------------------
+
+| Function      | Signal      | Pin | Connector        | Peripheral  |
+|---------------|-------------|-----|------------------|-------------|
+| VCP TX        | CTRL_VCP_TX | PB6 | ST-Link onboard  | USART1_TX   |
+| VCP RX        | CTRL_VCP_RX | PB7 | ST-Link onboard  | USART1_RX   |
+
+
+==============================================================
+3. Connector summary
+==============================================================
+
+Arduino header:
+
+| Pin | STM32 | Signal                    |
+|-----|-------|---------------------------|
+| D2  | PD12  | MOTOR_LEFT_DIR            |
+| D3  | PD14  | ENC_LEFT_CHA              |
+| D4  | PE3   | MOTOR_RIGHT_DIR           |
+| D6  | PE0   | MOTOR_RIGHT_PWM           |
+| D7  | PB2   | MOTOR_RIGHT_BRAKE         |
+| D8  | PD13  | MOTOR_LEFT_BRAKE          |
+| D9  | PD15  | ENC_LEFT_CHB              |
+| A0  | PC3   | MOTOR_RIGHT_CURRENT_SENSE |
+| A2  | PA5   | MOTOR_LEFT_CURRENT_SENSE  |
+| A3  | PC1   | MOTOR_LEFT_PWM            |
+
+STMod+ connector:
+
+| Pin | STM32 | Signal        |
+|-----|-------|---------------|
+| 14  | PA15  | ENC_RIGHT_CHA |
+
+Direct-fit wiring:
+
+| STM32 | Signal        | Note                     |
+|-------|---------------|--------------------------|
+| PB3   | ENC_RIGHT_CHB | Disables SWO debug trace |
+
+
+==============================================================
+4. Arduino pins not used by the project
+==============================================================
+
+Free (available for future use):
+
+| Pin | STM32 | Current function |
+|-----|-------|-----------------|
+| D0  | PC0   | LPUART1_RX      |
+| D1  | PB5   | LPUART1_TX      |
+| D5  | PB10  | (unassigned)    |
+| D14 | PA10  | I2C1_SDA        |
+| D15 | PB8   | I2C1_SCL        |
+| A1  | PA2   | ADC1_IN7        |
+| A4  | PC4   | ADC1_IN13       |
+| A5  | PC5   | ADC1_IN14       |
+
+Reserved by native MB1292B functions — do not use:
+
+| Pin | STM32 | Native function            |
+|-----|-------|----------------------------|
+| D10 | PA4   | SPI1_NSS (OLED)            |
+| D11 | PA7   | SPI1_MOSI (OLED + RGB LED) |
+| D12 | PB4   | SPI1_MISO (OLED)           |
+| D13 | PA1   | SPI1_SCK  (OLED)           |
+
+
+==============================================================
+5. CubeMX actions required
+==============================================================
+
+1. PB3  : change signal SYS_JTDO-SWO  -> TIM2_CH2
+2. PB10 : remove TIM2_CH3 assignment  -> unassigned
+3. PC1  : change signal ADCx_IN2      -> LPTIM1_OUT
+4. LPTIM1 : remove counterMode config -> enable continuous PWM output on PC1
+            clock source = PCLK1 (64 MHz)
+5. PB2, PD13, PE3, PD12 : set as GPIO_Output (currently GPIO_Input in .ioc)
+6. Confirm TIM16 / PE0 has no conflict with RGB LED or IR native behavior
