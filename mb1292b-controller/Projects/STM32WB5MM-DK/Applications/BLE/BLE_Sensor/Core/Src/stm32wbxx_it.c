@@ -215,20 +215,6 @@ void USART1_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles HSEM global interrupt.
-  */
-void HSEM_IRQHandler(void)
-{
-  /* USER CODE BEGIN HSEM_IRQn 0 */
-
-  /* USER CODE END HSEM_IRQn 0 */
-  HAL_HSEM_IRQHandler();
-  /* USER CODE BEGIN HSEM_IRQn 1 */
-
-  /* USER CODE END HSEM_IRQn 1 */
-}
-
-/**
   * @brief This function handles DMA2 channel4 global interrupt.
   */
 void DMA2_Channel4_IRQHandler(void)
@@ -244,33 +230,7 @@ void DMA2_Channel4_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 
-/**
-  * @brief This function handles IPCC RX occupied interrupt.
-  */
-void IPCC_C1_RX_IRQHandler(void)
-{
-  /* USER CODE BEGIN IPCC_C1_RX_IRQn 0 */
 
-  /* USER CODE END IPCC_C1_RX_IRQn 0 */
-  HAL_IPCC_RX_IRQHandler(&hipcc);
-  /* USER CODE BEGIN IPCC_C1_RX_IRQn 1 */
-
-  /* USER CODE END IPCC_C1_RX_IRQn 1 */
-}
-
-/**
-  * @brief This function handles IPCC TX free interrupt.
-  */
-void IPCC_C1_TX_IRQHandler(void)
-{
-  /* USER CODE BEGIN IPCC_C1_TX_IRQn 0 */
-
-  /* USER CODE END IPCC_C1_TX_IRQn 0 */
-  HAL_IPCC_TX_IRQHandler(&hipcc);
-  /* USER CODE BEGIN IPCC_C1_TX_IRQn 1 */
-
-  /* USER CODE END IPCC_C1_TX_IRQn 1 */
-}
 /**
  * @brief  This function handles External line
  *         interrupt request.
@@ -293,9 +253,5 @@ void TIM1_TRG_COM_TIM17_IRQHandler(void)
   BSP_PWM_LED_IRQHandler();
 }
 
-void RTC_WKUP_IRQHandler(void)
-{
-  HW_TS_RTC_Wakeup_Handler();
-}
 
 /* USER CODE END 1 */

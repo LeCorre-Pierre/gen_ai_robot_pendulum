@@ -23,15 +23,10 @@ C_DEPS :=
 
 # Every subdirectory with source files must be described here
 SUBDIRS := \
-Application/Startup \
-Application/User/Core \
-Application/User/Core/vl53l0x \
-Application/User/STM32_WPAN/App \
-Application/User/STM32_WPAN/Target \
+Application/User \
 Drivers/BSP/Components \
 Drivers/BSP/STM32WB5MM-DK \
 Drivers/CMSIS \
 Drivers/STM32WBxx_HAL_Driver \
-Middlewares/STM32_WPAN \
 Utilities \
 

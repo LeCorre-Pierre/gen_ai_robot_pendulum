@@ -10,16 +10,11 @@ RM := rm -rf
 # All of the sources participating in the build are defined here
 -include sources.mk
 -include Utilities/subdir.mk
--include Middlewares/STM32_WPAN/subdir.mk
 -include Drivers/STM32WBxx_HAL_Driver/subdir.mk
 -include Drivers/CMSIS/subdir.mk
 -include Drivers/BSP/STM32WB5MM-DK/subdir.mk
 -include Drivers/BSP/Components/subdir.mk
--include Application/User/STM32_WPAN/Target/subdir.mk
--include Application/User/STM32_WPAN/App/subdir.mk
--include Application/User/Core/vl53l0x/subdir.mk
--include Application/User/Core/subdir.mk
--include Application/Startup/subdir.mk
+-include Application/User/subdir.mk
 -include objects.mk
 
 ifneq ($(MAKECMDGOALS),clean)
