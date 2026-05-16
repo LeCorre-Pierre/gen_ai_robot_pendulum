@@ -4,9 +4,14 @@
  *
  * Four sequential tests, designed for step-through debugging:
  *   1. PWM ramp  : 0 % → 100 % in 11 steps of 500 ms each.
- *   2. Encoder   : read TIM1 counter every 100 ms while motor runs at 50 %.
+ *   2. Encoder   : four sub-tests for full left-encoder functional verification:
+ *        2a — TIM1 active   : counter stable at rest (enc_at_rest_ok == 1)
+ *        2b — CW rotation   : counter increments while motor runs forward (enc_cw_ok == 1)
+ *        2c — CCW rotation  : counter decrements while motor runs reverse (enc_ccw_ok == 1)
+ *        2d — Resolution    : ticks accumulated over 5 s at 50 % — compute RPM from enc_ticks_5s
  *   3. Current   : sample ADC1 (IN10 = left, IN4 = right) 10 times at 50 %.
  *   4. Direction : forward (DIR=LOW) 2 s, then reverse (DIR=HIGH) 2 s.
+ *   5. Right enc : same four sub-tests as Test 2 but for TIM2 / right motor.
  *
  * All result variables are volatile — set a breakpoint anywhere and
  * inspect them in the debugger without worrying about optimisation.
@@ -76,6 +81,34 @@ static void Motor_Left_Brake(void)
 }
 
 /* =========================================================================
+ * Motor helpers — RIGHT motor (TIM16 PWM, no CMPOK synchronisation needed)
+ * ========================================================================= */
+
+static void Motor_Right_SetDuty(uint32_t duty)
+{
+    __HAL_TIM_SET_COMPARE(&htim16, TIM_CHANNEL_1, duty);
+}
+
+static void Motor_Right_Forward(void)
+{
+    HAL_GPIO_WritePin(MOTOR_RIGHT_DIR_PORT,   MOTOR_RIGHT_DIR_PIN,   GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(MOTOR_RIGHT_BRAKE_PORT, MOTOR_RIGHT_BRAKE_PIN, GPIO_PIN_RESET);
+}
+
+static void Motor_Right_Reverse(void)
+{
+    HAL_GPIO_WritePin(MOTOR_RIGHT_DIR_PORT,   MOTOR_RIGHT_DIR_PIN,   GPIO_PIN_SET);
+    HAL_GPIO_WritePin(MOTOR_RIGHT_BRAKE_PORT, MOTOR_RIGHT_BRAKE_PIN, GPIO_PIN_RESET);
+}
+
+static void Motor_Right_Brake(void)
+{
+    Motor_Right_SetDuty(0);
+    HAL_GPIO_WritePin(MOTOR_RIGHT_BRAKE_PORT, MOTOR_RIGHT_BRAKE_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(MOTOR_RIGHT_DIR_PORT,   MOTOR_RIGHT_DIR_PIN,   GPIO_PIN_RESET);
+}
+
+/* =========================================================================
  * main
  * ========================================================================= */
 
@@ -104,6 +137,10 @@ int main(void)
     /* --- Test 2: Encoder ---------------------------------------------- */
     volatile uint16_t enc_raw        = 0;   /* TIM1 CNT register (16-bit)  */
     volatile int16_t  enc_delta      = 0;   /* ticks between two samples   */
+    volatile uint8_t  enc_at_rest_ok = 0;   /* 2a pass: counter stable at rest  */
+    volatile uint8_t  enc_cw_ok      = 0;   /* 2b pass: counter advances CW     */
+    volatile uint8_t  enc_ccw_ok     = 0;   /* 2c pass: counter retreats CCW    */
+    volatile int32_t  enc_ticks_5s   = 0;   /* 2d: ticks in 5 s @ 50 % duty    */
 
     /* --- Test 3: ADC current sensor ------------------------------------ */
     volatile uint16_t adc_left_raw   = 0;   /* IN10/PA5 — left motor       */
@@ -112,6 +149,14 @@ int main(void)
     /* --- Test 4: Direction -------------------------------------------- */
     volatile uint8_t  dir_forward    = 0;   /* 1 while running forward     */
     volatile uint8_t  dir_reverse    = 0;   /* 1 while running reverse     */
+
+    /* --- Test 5: Right encoder (TIM2 / PA15 + PB3) -------------------- */
+    volatile uint16_t enc_r_raw        = 0;
+    volatile int16_t  enc_r_delta      = 0;
+    volatile uint8_t  enc_r_at_rest_ok = 0;
+    volatile uint8_t  enc_r_cw_ok      = 0;
+    volatile uint8_t  enc_r_ccw_ok     = 0;
+    volatile int32_t  enc_r_ticks_5s   = 0;
 
     /* ================================================================== */
     /*  TEST 1 — PWM ramp: 0 % → 100 % in 11 steps of 500 ms            */
@@ -136,29 +181,126 @@ int main(void)
     HAL_Delay(1000);    /* coast to rest before next test */
 
     /* ================================================================== */
-    /*  TEST 2 — LEFT encoder                                             */
+    /*  TEST 2 — LEFT encoder functional verification (4 sub-tests)      */
     /*                                                                     */
-    /*  Watch: enc_raw, enc_delta                                         */
-    /*  Expected: enc_raw advances; enc_delta > 0 for forward rotation    */
+    /*  Watch: enc_raw, enc_delta, enc_at_rest_ok, enc_cw_ok,            */
+    /*         enc_ccw_ok, enc_ticks_5s                                   */
     /* ================================================================== */
     test_step = 2;
 
-    Motor_Left_Forward();
-    Motor_Left_SetDuty(MOTOR_PWM_PERIOD / 2U);   /* 50 % */
-
-    uint16_t enc_prev = 0;
-
-    for (uint32_t i = 0; i < 20U; ++i)
+    /* ----- 2a: TIM1 active — counter must be stable at rest ----------- */
+    /*                                                                      */
+    /*  Motor fully braked. 5 samples over 500 ms.                        */
+    /*  Expected: enc_at_rest_ok == 1  (enc_delta == 0 every sample)      */
     {
-        HAL_Delay(100);
-        enc_raw   = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
-        enc_delta = (int16_t)(enc_raw - enc_prev);
-        enc_prev  = enc_raw;
-        /* Breakpoint here to inspect enc_raw and enc_delta each iteration */
+        Motor_Left_Brake();
+        HAL_Delay(200);
+
+        uint16_t enc_prev_a = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+        uint8_t  stable     = 1;
+
+        for (uint32_t i = 0; i < 5U; ++i)
+        {
+            HAL_Delay(100);
+            enc_raw   = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+            enc_delta = (int16_t)(enc_raw - enc_prev_a);
+            enc_prev_a = enc_raw;
+            if (enc_delta != 0)
+                stable = 0;
+            /* Breakpoint here: enc_delta must equal 0 */
+        }
+        enc_at_rest_ok = stable;
+        /* PASS criterion: enc_at_rest_ok == 1 */
     }
 
-    Motor_Left_Brake();
-    HAL_Delay(1000);
+    /* ----- 2b: CW rotation — motor forward, counter must increment ----- */
+    /*                                                                       */
+    /*  Motor forward at 50 % for 2 s (20 samples × 100 ms).              */
+    /*  Expected: enc_cw_ok == 1  (enc_delta > 0 every sample)             */
+    {
+        uint16_t enc_prev_b = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+        uint8_t  advancing  = 1;
+
+        Motor_Left_Forward();
+        Motor_Left_SetDuty(MOTOR_PWM_PERIOD / 2U);   /* 50 % */
+
+        for (uint32_t i = 0; i < 20U; ++i)
+        {
+            HAL_Delay(100);
+            enc_raw   = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+            enc_delta = (int16_t)(enc_raw - enc_prev_b);
+            enc_prev_b = enc_raw;
+            if (enc_delta <= 0)
+                advancing = 0;
+            /* Breakpoint here: enc_delta must be > 0 */
+        }
+
+        Motor_Left_Brake();
+        HAL_Delay(500);
+        enc_cw_ok = advancing;
+        /* PASS criterion: enc_cw_ok == 1
+         * If enc_cw_ok == 0: check DIR/BRAKE wiring or swap CHA/CHB. */
+    }
+
+    /* ----- 2c: CCW rotation — motor reverse, counter must decrement ---- */
+    /*                                                                       */
+    /*  Motor reverse at 50 % for 2 s (20 samples × 100 ms).              */
+    /*  Expected: enc_ccw_ok == 1  (enc_delta < 0 every sample)            */
+    {
+        uint16_t enc_prev_c = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+        uint8_t  retreating = 1;
+
+        Motor_Left_Reverse();
+        Motor_Left_SetDuty(MOTOR_PWM_PERIOD / 2U);   /* 50 % */
+
+        for (uint32_t i = 0; i < 20U; ++i)
+        {
+            HAL_Delay(100);
+            enc_raw   = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+            enc_delta = (int16_t)(enc_raw - enc_prev_c);
+            enc_prev_c = enc_raw;
+            if (enc_delta >= 0)
+                retreating = 0;
+            /* Breakpoint here: enc_delta must be < 0 */
+        }
+
+        Motor_Left_Brake();
+        HAL_Delay(500);
+        enc_ccw_ok = retreating;
+        /* PASS criterion: enc_ccw_ok == 1
+         * If enc_ccw_ok == 0 but enc_cw_ok == 1: check CHB polarity (PD15). */
+    }
+
+    /* ----- 2d: Resolution — ticks accumulated over 5 s at 50 % -------- */
+    /*                                                                       */
+    /*  Motor forward at 50 % for exactly 5 s.                             */
+    /*  Expected: enc_ticks_5s ≈ 2 300 ticks  (rough; depends on supply)  */
+    /*                                                                       */
+    /*  To compute RPM from the result:                                     */
+    /*    ticks_per_s  = enc_ticks_5s / 5                                  */
+    /*    rev_per_s    = ticks_per_s  / 1856                               */
+    /*    RPM          = rev_per_s   * 60                                  */
+    /*  Plausible range at 50 % duty: 10–25 RPM at the wheel output.      */
+    {
+        uint16_t enc_start_d = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+
+        Motor_Left_Forward();
+        Motor_Left_SetDuty(MOTOR_PWM_PERIOD / 2U);   /* 50 % */
+        HAL_Delay(5000);
+
+        Motor_Left_Brake();
+        uint16_t enc_end_d = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+
+        /* Signed 32-bit delta — safe as long as wheel doesn't do >17 turns in 5 s */
+        enc_ticks_5s = (int32_t)enc_end_d - (int32_t)enc_start_d;
+        /* Breakpoint here: inspect enc_ticks_5s and compute RPM manually. */
+
+        HAL_Delay(1000);
+    }
+
+    /* All encoder sub-tests complete. enc_at_rest_ok, enc_cw_ok, enc_ccw_ok
+     * should all be 1. enc_ticks_5s should be positive and in the range
+     * expected for the motor at 50 % duty. */
 
     /* ================================================================== */
     /*  TEST 3 — Motor current sensor (ADC1)                             */
@@ -230,7 +372,119 @@ int main(void)
     HAL_Delay(500);
 
     /* ================================================================== */
-    /*  All tests complete — motor is braked, safe state                  */
+    /*  TEST 5 — RIGHT encoder functional verification (4 sub-tests)     */
+    /*                                                                     */
+    /*  Mirror of Test 2 but for TIM2 (PA15=CH1, PB3=CH2) and the right  */
+    /*  motor (TIM16 PWM on PE0, DIR=PE3, BRAKE=PB2).                    */
+    /*                                                                     */
+    /*  Watch: enc_r_raw, enc_r_delta, enc_r_at_rest_ok, enc_r_cw_ok,   */
+    /*         enc_r_ccw_ok, enc_r_ticks_5s                              */
+    /* ================================================================== */
+    test_step = 5;
+
+    /* ----- 5a: TIM2 active — counter must be stable at rest ----------- */
+    {
+        Motor_Right_Brake();
+        HAL_Delay(200);
+
+        uint16_t enc_r_prev_a = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+        uint8_t  stable_r     = 1;
+
+        for (uint32_t i = 0; i < 5U; ++i)
+        {
+            HAL_Delay(100);
+            enc_r_raw   = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+            enc_r_delta = (int16_t)(enc_r_raw - enc_r_prev_a);
+            enc_r_prev_a = enc_r_raw;
+            if (enc_r_delta != 0)
+                stable_r = 0;
+            /* Breakpoint here: enc_r_delta must equal 0 */
+        }
+        enc_r_at_rest_ok = stable_r;
+        /* PASS criterion: enc_r_at_rest_ok == 1
+         * If it fails: check TIM2 is started in encoder mode (Periph_TIM2_Init). */
+    }
+
+    /* ----- 5b: CW rotation — motor forward, counter must increment ----- */
+    {
+        uint16_t enc_r_prev_b = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+        uint8_t  advancing_r  = 1;
+
+        Motor_Right_Forward();
+        Motor_Right_SetDuty(MOTOR_PWM_PERIOD / 2U);   /* 50 % */
+
+        for (uint32_t i = 0; i < 20U; ++i)
+        {
+            HAL_Delay(100);
+            enc_r_raw   = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+            enc_r_delta = (int16_t)(enc_r_raw - enc_r_prev_b);
+            enc_r_prev_b = enc_r_raw;
+            if (enc_r_delta <= 0)
+                advancing_r = 0;
+            /* Breakpoint here: enc_r_delta must be > 0 */
+        }
+
+        Motor_Right_Brake();
+        HAL_Delay(500);
+        enc_r_cw_ok = advancing_r;
+        /* PASS criterion: enc_r_cw_ok == 1
+         * If enc_r_delta is consistently < 0: swap CHA/CHB (PA15 ↔ PB3). */
+    }
+
+    /* ----- 5c: CCW rotation — motor reverse, counter must decrement ---- */
+    {
+        uint16_t enc_r_prev_c = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+        uint8_t  retreating_r = 1;
+
+        Motor_Right_Reverse();
+        Motor_Right_SetDuty(MOTOR_PWM_PERIOD / 2U);   /* 50 % */
+
+        for (uint32_t i = 0; i < 20U; ++i)
+        {
+            HAL_Delay(100);
+            enc_r_raw   = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+            enc_r_delta = (int16_t)(enc_r_raw - enc_r_prev_c);
+            enc_r_prev_c = enc_r_raw;
+            if (enc_r_delta >= 0)
+                retreating_r = 0;
+            /* Breakpoint here: enc_r_delta must be < 0 */
+        }
+
+        Motor_Right_Brake();
+        HAL_Delay(500);
+        enc_r_ccw_ok = retreating_r;
+        /* PASS criterion: enc_r_ccw_ok == 1
+         * If enc_r_ccw_ok == 0 but enc_r_cw_ok == 1: check CHB polarity (PB3). */
+    }
+
+    /* ----- 5d: Resolution — ticks accumulated over 5 s at 50 % -------- */
+    /*                                                                       */
+    /*  Same formula as Test 2d:                                            */
+    /*    RPM = (enc_r_ticks_5s / 5) / 1856 * 60                          */
+    /*  Expected: same plausible range as left motor (10–25 RPM).          */
+    {
+        uint16_t enc_r_start_d = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+
+        Motor_Right_Forward();
+        Motor_Right_SetDuty(MOTOR_PWM_PERIOD / 2U);   /* 50 % */
+        HAL_Delay(5000);
+
+        Motor_Right_Brake();
+        uint16_t enc_r_end_d = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+
+        enc_r_ticks_5s = (int32_t)enc_r_end_d - (int32_t)enc_r_start_d;
+        /* Breakpoint here: compare enc_r_ticks_5s with enc_ticks_5s (Test 2d).
+         * Both motors at 50 % duty should yield similar tick counts (±15 %). */
+
+        HAL_Delay(1000);
+    }
+
+    /* All encoder sub-tests complete.
+     * enc_r_at_rest_ok, enc_r_cw_ok, enc_r_ccw_ok should all be 1.
+     * enc_r_ticks_5s should be close to enc_ticks_5s from Test 2d. */
+
+    /* ================================================================== */
+    /*  All tests complete — both motors braked, safe state               */
     /*  Set test_step = 0 and enter idle loop.                            */
     /* ================================================================== */
     test_step = 0;

@@ -1,0 +1,27 @@
+################################################################################
+# Automatically-generated file. Do not edit!
+# Toolchain: GNU Tools for STM32 (14.3.rel1)
+################################################################################
+
+# Add inputs and outputs from these tool invocations to the build variables 
+C_SRCS += \
+../Utilities/LCD/stm32_lcd.c 
+
+OBJS += \
+./Utilities/LCD/stm32_lcd.o 
+
+C_DEPS += \
+./Utilities/LCD/stm32_lcd.d 
+
+
+# Each subdirectory must supply rules for building sources it contributes
+Utilities/LCD/%.o Utilities/LCD/%.su Utilities/LCD/%.cyclo: ../Utilities/LCD/%.c Utilities/LCD/subdir.mk
+	arm-none-eabi-gcc "$<" -mcpu=cortex-m4 -std=gnu11 -g3 -DSTM32WB5Mxx -DUSE_HAL_DRIVER -DDEBUG -DUSE_STM32WB5M_DK -c -I../Inc -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/BSP/STM32WB5MM-DK" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/CMSIS/Include" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/CMSIS/Device/ST/STM32WBxx/Include" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/STM32WBxx_HAL_Driver/Inc" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/BSP/Components/Common" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/BSP/Components/ism330dhcx" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/BSP/Components/ssd1315" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/BSP/Components/stm32wb_at" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Drivers/BSP/Components/stts22h" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Utilities/Fonts" -I"D:/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Utilities/LCD" -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@"
+
+clean: clean-Utilities-2f-LCD
+
+clean-Utilities-2f-LCD:
+	-$(RM) ./Utilities/LCD/stm32_lcd.cyclo ./Utilities/LCD/stm32_lcd.d ./Utilities/LCD/stm32_lcd.o ./Utilities/LCD/stm32_lcd.su
+
+.PHONY: clean-Utilities-2f-LCD
+

@@ -4,6 +4,7 @@ TIM_HandleTypeDef   htim1;
 TIM_HandleTypeDef   htim2;
 TIM_HandleTypeDef   htim16;
 LPTIM_HandleTypeDef hlptim1;
+I2C_HandleTypeDef   hi2c3;
 
 static void gpio_clocks_enable(void)
 {
@@ -193,6 +194,35 @@ void Periph_LPTIM1_Init(void)
     }
 }
 
+void Periph_I2C3_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    __HAL_RCC_I2C3_CLK_ENABLE();
+
+    /* PB13 = I2C3_SCL, PB11 = I2C3_SDA — open-drain, AF4 */
+    GPIO_InitStruct.Pin       = GPIO_PIN_13 | GPIO_PIN_11;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_OD;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;   /* external pull-ups on MB1292B */
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF4_I2C3;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* 100 kHz standard mode @ PCLK1 = 64 MHz
+     * Timing from STM32CubeMX: PRESC=1, SCLDEL=9, SDADEL=0, SCLH=0x9C, SCLL=0xEC */
+    hi2c3.Instance              = I2C3;
+    hi2c3.Init.Timing           = 0x10909CECU;
+    hi2c3.Init.OwnAddress1      = 0;
+    hi2c3.Init.AddressingMode   = I2C_ADDRESSINGMODE_7BIT;
+    hi2c3.Init.DualAddressMode  = I2C_DUALADDRESS_DISABLE;
+    hi2c3.Init.OwnAddress2      = 0;
+    hi2c3.Init.GeneralCallMode  = I2C_GENERALCALL_DISABLE;
+    hi2c3.Init.NoStretchMode    = I2C_NOSTRETCH_DISABLE;
+
+    if (HAL_I2C_Init(&hi2c3) != HAL_OK)
+        Error_Handler();
+}
+
 void Periph_GPIO_Motor_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -225,6 +255,19 @@ void Periph_GPIO_Motor_Init(void)
     HAL_GPIO_Init(MOTOR_RIGHT_BRAKE_PORT, &GPIO_InitStruct);
 }
 
+void Periph_LCD_Init(void)
+{
+    BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+    UTIL_LCD_SetFuncDriver(&LCD_Driver);
+    UTIL_LCD_SetDevice(0);
+    UTIL_LCD_SetFont(&Font8);
+    UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+    UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+    BSP_LCD_Clear(0, LCD_COLOR_BLACK);
+    UTIL_LCD_DisplayStringAt(0, LINE(0), (uint8_t *)"--- IMU TEST ---", CENTER_MODE);
+    BSP_LCD_Refresh(0);
+}
+
 void Periph_Init_All(void)
 {
     /* Enable all GPIO port clocks first */
@@ -240,4 +283,10 @@ void Periph_Init_All(void)
     /* Motor PWM */
     Periph_TIM16_Init();
     Periph_LPTIM1_Init();
+
+    /* IMU */
+    Periph_I2C3_Init();
+
+    /* OLED display (SPI1, SSD1315, 128x64) */
+    Periph_LCD_Init();
 }

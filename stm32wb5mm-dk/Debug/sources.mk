@@ -22,6 +22,10 @@ C_DEPS :=
 
 # Every subdirectory with source files must be described here
 SUBDIRS := \
+Drivers/BSP/Components/ssd1315 \
+Drivers/BSP/STM32WB5MM-DK \
+Drivers/STM32WBxx_HAL_Driver/Src \
 Src \
 Startup \
+Utilities/LCD \
 

@@ -1,9 +1,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
-/* External variables --------------------------------------------------------*/
-extern DMA_HandleTypeDef hdma_usart1_tx;
-extern UART_HandleTypeDef huart1;
 
 void NMI_Handler(void)
 {
@@ -53,15 +50,6 @@ void SysTick_Handler(void)
   HAL_IncTick();
 }
 
-void USART1_IRQHandler(void)
-{
-  HAL_UART_IRQHandler(&huart1);
-}
-
-void DMA2_Channel4_IRQHandler(void)
-{
-  HAL_DMA_IRQHandler(&hdma_usart1_tx);
-}
 
 void PUSH_BUTTON_SW_EXTI_IRQHandler(void)
 {
