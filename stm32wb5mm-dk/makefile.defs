@@ -1,0 +1,2 @@
+# makefile.defs — optional user overrides (included by Debug/makefile).
+# CubeIDE manages objects.list; add USER_OBJS here only for files outside the project tree.

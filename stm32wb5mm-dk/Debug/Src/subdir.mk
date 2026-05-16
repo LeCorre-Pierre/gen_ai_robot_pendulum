@@ -8,18 +8,24 @@ C_SRCS += \
 ../Src/main.c \
 ../Src/stm32wbxx_hal_msp.c \
 ../Src/stm32wbxx_it.c \
+../Src/syscalls.c \
+../Src/sysmem.c \
 ../Src/system_stm32wbxx.c 
 
 OBJS += \
 ./Src/main.o \
 ./Src/stm32wbxx_hal_msp.o \
 ./Src/stm32wbxx_it.o \
+./Src/syscalls.o \
+./Src/sysmem.o \
 ./Src/system_stm32wbxx.o 
 
 C_DEPS += \
 ./Src/main.d \
 ./Src/stm32wbxx_hal_msp.d \
 ./Src/stm32wbxx_it.d \
+./Src/syscalls.d \
+./Src/sysmem.d \
 ./Src/system_stm32wbxx.d 
 
 
@@ -30,7 +36,7 @@ Src/%.o Src/%.su Src/%.cyclo: ../Src/%.c Src/subdir.mk
 clean: clean-Src
 
 clean-Src:
-	-$(RM) ./Src/main.cyclo ./Src/main.d ./Src/main.o ./Src/main.su ./Src/stm32wbxx_hal_msp.cyclo ./Src/stm32wbxx_hal_msp.d ./Src/stm32wbxx_hal_msp.o ./Src/stm32wbxx_hal_msp.su ./Src/stm32wbxx_it.cyclo ./Src/stm32wbxx_it.d ./Src/stm32wbxx_it.o ./Src/stm32wbxx_it.su ./Src/system_stm32wbxx.cyclo ./Src/system_stm32wbxx.d ./Src/system_stm32wbxx.o ./Src/system_stm32wbxx.su
+	-$(RM) ./Src/main.cyclo ./Src/main.d ./Src/main.o ./Src/main.su ./Src/stm32wbxx_hal_msp.cyclo ./Src/stm32wbxx_hal_msp.d ./Src/stm32wbxx_hal_msp.o ./Src/stm32wbxx_hal_msp.su ./Src/stm32wbxx_it.cyclo ./Src/stm32wbxx_it.d ./Src/stm32wbxx_it.o ./Src/stm32wbxx_it.su ./Src/syscalls.cyclo ./Src/syscalls.d ./Src/syscalls.o ./Src/syscalls.su ./Src/sysmem.cyclo ./Src/sysmem.d ./Src/sysmem.o ./Src/sysmem.su ./Src/system_stm32wbxx.cyclo ./Src/system_stm32wbxx.d ./Src/system_stm32wbxx.o ./Src/system_stm32wbxx.su
 
 .PHONY: clean-Src
 

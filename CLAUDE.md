@@ -19,7 +19,7 @@ The STM32 is the sole master of the control loop. The PC app is an engineering/t
 
 Must run from the build directory:
 ```bash
-cd /d/Projects/gen_ai_robot_pendulum/mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/STM32CubeIDE/Debug
+cd /d/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Debug
 make -j16 all      # build
 make -j16 clean    # clean
 ```
@@ -30,8 +30,6 @@ Git Bash aliases (defined in shell profile):
 - `mrebuild` — clean + rebuild
 - `cmcu` — cd to firmware project root
 - `cproj` — cd to repo root
-
-> **Note:** `PB3` is used for `ENC_RIGHT_CHB` (TIM2_CH2). SWO debug trace must be disabled in Release builds.
 
 ### PC Monitor App
 
@@ -61,29 +59,32 @@ python -m serial.tools.miniterm COM4 115200
 
 **Board:** MB1292B (STM32WB5MMG — Cortex-M4 @ 64 MHz + M0+ @ 32 MHz for BLE 5.2)
 
-**Project root:** `mb1292b-controller/Projects/STM32WB5MM-DK/Applications/BLE/BLE_Sensor/`
+**Project root:** `stm32wb5mm-dk/`
 
 **Key source files:**
-- `Core/Src/main.c` — entry point, peripheral init
-- `Core/Src/periph_init.c` — peripheral initialization
-- `Core/Src/host_link.c` / `host_link_params.c` / `host_link_storage.c` — VCP protocol host interface
-- `Core/Src/hw_uart.c` — UART driver
+- `Src/main.c` — entry point, peripheral init
+- `Src/stm32wbxx_hal_msp.c` — HAL MSP callbacks (peripheral low-level init)
+- `Src/stm32wbxx_it.c` — interrupt handlers
+- `Inc/main.h` — main header
+- `Inc/pin_mapping.h` — pin definitions
 
-**Control modules:** `mb1292b-controller/Utilities/Control/`
-- `pid_controller.c/h` — generic PID with anti-windup
-- `cascade_balance_controller.c/h` — cascade PID (outer velocity → inner angle)
+**Control modules:** (à créer dans `Src/` ou un sous-dossier dédié)
+- `pid_controller.c/h` — generic PID with anti-windup (planned)
+- `cascade_balance_controller.c/h` — cascade PID (outer velocity → inner angle) (planned)
 
-**FreeRTOS task structure (planned):**
-- `task_control` — balance loop @ 200 Hz (Cortex-M4)
-- `task_ble` — BLE smartphone channel
-- `task_vcp` — ST-Link VCP to PC
-- `task_safety` — watchdog, tilt limit, fault management
+**IMU:** ISM330DHCX onboard MB1292B, connected via I2C3 (PB13=SCL, PB11=SDA), address `0x6B`. Driver: `stm32wb5mm-dk/Drivers/BSP/Components/ism330dhcx/`. Do not add an external IMU.
 
-**IMU:** ISM330DHCX onboard MB1292B, connected via I2C3 (PB13=SCL, PB11=SDA), address `0x6B`. Driver: `Drivers/BSP/Components/ism330dhcx/`. Do not add an external IMU.
+**CubeIDE project files** — toujours modifier directement ces fichiers source pour changer les propriétés du projet :
+- `stm32wb5mm-dk/.project`
+- `stm32wb5mm-dk/.cproject`
 
-**CubeIDE project files** (modify to change project properties):
-- `STM32CubeIDE/.project`
-- `STM32CubeIDE/.cproject`
+> **Ne jamais éditer** les artefacts générés à la compilation (`Debug/makefile`, `Debug/objects.list`, fichiers `*.d`, `subdir.mk`, etc.). Ces fichiers sont regénérés par CubeIDE/make à chaque build et toute modification manuelle sera écrasée.
+
+**Syscall stubs newlib-nano** — `--specs=nano.specs` exige `_sbrk` et d'autres stubs que CubeIDE génère normalement. Ces fichiers ont été créés manuellement car le projet avait "System calls: None" sans les fournir :
+- `Src/sysmem.c` — implémente `_sbrk` (gestion heap, utilise `_end`/`_estack`/`_Min_Stack_Size` du linker script)
+- `Src/syscalls.c` — stubs minimaux (`_write`, `_read`, `_close`, etc.)
+
+CubeIDE les gère désormais via `objects.list`. `stm32wb5mm-dk/makefile.defs` est un fichier vide prévu pour des overrides manuels (`USER_OBJS`) si besoin — ne pas y dupliquer des fichiers déjà dans `objects.list`.
 
 ---
 

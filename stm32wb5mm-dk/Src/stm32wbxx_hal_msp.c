@@ -257,14 +257,17 @@ void Periph_GPIO_Motor_Init(void)
 
 void Periph_LCD_Init(void)
 {
-    BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+    volatile int32_t lcd_init_ret = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+    (void)lcd_init_ret;  /* inspect in debugger: 0 = BSP_ERROR_NONE */
     UTIL_LCD_SetFuncDriver(&LCD_Driver);
     UTIL_LCD_SetDevice(0);
+    BSP_LCD_Clear(0, LCD_COLOR_BLACK);
+    BSP_LCD_DisplayOn(0);
+    BSP_LCD_Refresh(0);
     UTIL_LCD_SetFont(&Font8);
     UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
     UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
     BSP_LCD_Clear(0, LCD_COLOR_BLACK);
-    UTIL_LCD_DisplayStringAt(0, LINE(0), (uint8_t *)"--- IMU TEST ---", CENTER_MODE);
     BSP_LCD_Refresh(0);
 }
 

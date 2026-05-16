@@ -3,10 +3,13 @@
  * @brief   Application entry point — bring-up test sequence.
  *
  * Sequential tests, designed for step-through debugging:
+ *   0. LCD           : SSD1315 128×64 — affiche un écran de démarrage.
  *   1. Left encoder  : TIM1 (PD14/PD15) — tourner la roue gauche à la main.
  *   2. Right encoder : TIM2 (PA15/PB3)  — tourner la roue droite à la main.
- *   3. PWM ramp      : left motor 0 % → 100 % in 11 steps of 500 ms each.
- *   4. Direction     : forward (DIR=LOW) 2 s, then reverse (DIR=HIGH) 2 s.
+ *   3. IMU           : ISM330DHCX — accél + gyro affichés sur OLED en temps réel.
+ *   4. VL53L0X       : ToF I2C3 (0x29) — distance en mm affichée sur OLED.
+ *   5. PWM ramp      : left motor 0 % → 100 % in 11 steps of 500 ms each.
+ *   6. Direction     : forward (DIR=LOW) 2 s, then reverse (DIR=HIGH) 2 s.
  *
  * All result variables are volatile — set a breakpoint anywhere and
  * inspect them in the debugger without worrying about optimisation.
@@ -97,6 +100,9 @@ int main(void)
     /* test_step tracks the active test for live debugger inspection. */
     volatile uint8_t test_step = 0;
 
+    /* --- Test 0: LCD -------------------------------------------------- */
+    volatile uint8_t lcd_ok = 1;   /* 1 si on est arrivé ici après LCD init */
+
     /* --- Test 1: Left encoder ----------------------------------------- */
     volatile uint16_t enc_raw   = 0;   /* TIM1_CNT — position absolue     */
     volatile int16_t  enc_delta = 0;   /* ticks depuis le dernier sample  */
@@ -111,12 +117,32 @@ int main(void)
     volatile int16_t  imu_ax = 0, imu_ay = 0, imu_az = 0;  /* accél (LSB) */
     volatile int16_t  imu_gx = 0, imu_gy = 0, imu_gz = 0;  /* gyro  (LSB) */
 
-    /* --- Test 4: PWM ramp --------------------------------------------- */
+    /* --- Test 4: VL53L0X ---------------------------------------------- */
+    volatile uint8_t  vl53_i2c_ok   = 0;  /* 1 si I2C3 répond à 0x29     */
+    volatile uint8_t  vl53_who_am_i = 0;  /* WHO_AM_I (attendu 0xEE)      */
+    volatile uint16_t vl53_range_mm = 0;  /* distance en mm               */
+
+    /* --- Test 5: PWM ramp --------------------------------------------- */
     volatile uint32_t ramp_duty_cmp = 0;
 
-    /* --- Test 5: Direction -------------------------------------------- */
+    /* --- Test 6: Direction -------------------------------------------- */
     volatile uint8_t dir_forward = 0;
     volatile uint8_t dir_reverse = 0;
+
+    /* ================================================================== */
+    /*  TEST 0 — LCD (SSD1315 128×64, SPI1)                              */
+    /*                                                                     */
+    /*  Watch: lcd_ok (toujours 1 si Periph_LCD_Init a réussi)           */
+    /*  Vérifier que le texte ci-dessous est visible sur l'écran          */
+    /* ================================================================== */
+    test_step = 0;
+
+    UTIL_LCD_DisplayStringAt(0, LINE(0), (uint8_t *)" Robot Pendulum ", CENTER_MODE);
+    UTIL_LCD_DisplayStringAt(0, LINE(2), (uint8_t *)"LCD    : OK", LEFT_MODE);
+    UTIL_LCD_DisplayStringAt(0, LINE(3), (uint8_t *)"Bring-up v1.0", LEFT_MODE);
+    BSP_LCD_Refresh(0);
+
+    HAL_Delay(2000);
 
     /* ================================================================== */
     /*  TEST 1 — LEFT encoder (TIM1 · PD14=CHA · PD15=CHB)               */
@@ -174,6 +200,10 @@ int main(void)
     {
         uint8_t cfg;
 
+        BSP_LCD_Clear(0, LCD_COLOR_BLACK);
+        UTIL_LCD_DisplayStringAt(0, LINE(0), (uint8_t *)"--- IMU TEST ---", CENTER_MODE);
+        BSP_LCD_Refresh(0);
+
         /* Accel: ODR = 208 Hz, FS = ±2 g */
         cfg = 0x50U;
         HAL_I2C_Mem_Write(&hi2c3, ISM330DHCX_ADDR,
@@ -188,7 +218,7 @@ int main(void)
 
         HAL_Delay(10);   /* attendre le premier sample */
 
-        while (1)
+        while (0)
         {
             uint8_t buf[6];
             char    disp[22];
@@ -228,12 +258,104 @@ int main(void)
     }
 
     /* ================================================================== */
-    /*  TEST 4 — PWM ramp: 0 % → 100 % in 11 steps of 500 ms            */
+    /*  TEST 4 — VL53L0X (ToF · I2C3 · PB13=SCL · PB11=SDA · 0x29)     */
+    /*                                                                     */
+    /*  Watch: vl53_i2c_ok, vl53_who_am_i, vl53_range_mm               */
+    /*  PASS: vl53_i2c_ok == 1, vl53_who_am_i == 0xEE                  */
+    /*  Range 0–2000 mm typ. · 0x1FFF = hors portée ou erreur           */
+    /*  Approcher / éloigner la main devant le capteur                    */
+    /* ================================================================== */
+    test_step = 4;
+
+#define VL53L0X_ADDR        (0x29U << 1)   /* 0x52 — 8-bit I2C write addr  */
+#define VL53L0X_WHO_AM_I_REG 0xC0U         /* model ID register             */
+#define VL53L0X_WHO_AM_I_VAL 0xEEU         /* expected value                */
+
+    /* --- 4a: présence I2C -------------------------------------------- */
+    vl53_i2c_ok = (HAL_I2C_IsDeviceReady(&hi2c3, VL53L0X_ADDR, 3, 100) == HAL_OK)
+                  ? 1U : 0U;
+    /* PASS: vl53_i2c_ok == 1 — sinon vérifier PB13/PB11 et l'adresse 0x29 */
+
+    /* --- 4b: WHO_AM_I ------------------------------------------------- */
+    {
+        uint8_t reg = 0;
+        HAL_I2C_Mem_Read(&hi2c3, VL53L0X_ADDR,
+                         VL53L0X_WHO_AM_I_REG, I2C_MEMADD_SIZE_8BIT,
+                         &reg, 1, 100);
+        vl53_who_am_i = reg;
+        /* PASS: vl53_who_am_i == 0xEE */
+    }
+
+    if (vl53_i2c_ok)
+    {
+        uint8_t val;
+        uint8_t stop_var = 0;
+
+        /* --- 4c: séquence d'init privée requise par le VL53L0X --------- */
+        val = 0x00; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x88, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+        val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x80, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+        val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0xFF, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+        val = 0x00; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+        HAL_I2C_Mem_Read (&hi2c3, VL53L0X_ADDR, 0x91, I2C_MEMADD_SIZE_8BIT, &stop_var, 1, 100);
+        val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+        val = 0x00; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0xFF, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+        val = 0x00; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x80, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+
+        BSP_LCD_Clear(0, LCD_COLOR_BLACK);
+        UTIL_LCD_DisplayStringAt(0, LINE(0), (uint8_t *)"-- VL53L0X TEST --", CENTER_MODE);
+        BSP_LCD_Refresh(0);
+
+        /* --- 4d: lecture en boucle ------------------------------------- */
+        while (1)
+        {
+            char disp[22];
+
+            /* Démarrer un ranging single-shot */
+            val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x80, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+            val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0xFF, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+            val = 0x00; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+            HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x91, I2C_MEMADD_SIZE_8BIT, &stop_var, 1, 100);
+            val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+            val = 0x00; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0xFF, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+            val = 0x00; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x80, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+            val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &val, 1, 100); /* SYSRANGE_START */
+
+            /* Attendre fin de mesure — bit 0 de SYSRANGE_START retombe à 0 */
+            uint8_t sr = 1U;
+            uint32_t t0 = HAL_GetTick();
+            while ((sr & 0x01U) && (HAL_GetTick() - t0 < 500U)) {
+                HAL_I2C_Mem_Read(&hi2c3, VL53L0X_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sr, 1, 10);
+            }
+
+            /* Lire distance (reg 0x1E:0x1F, big-endian, en mm) */
+            uint8_t rbuf[2] = {0, 0};
+            HAL_I2C_Mem_Read(&hi2c3, VL53L0X_ADDR, 0x1E, I2C_MEMADD_SIZE_8BIT, rbuf, 2, 100);
+            vl53_range_mm = ((uint16_t)rbuf[0] << 8) | rbuf[1];
+
+            /* Effacer l'interruption (SYSTEM_INTERRUPT_CLEAR) */
+            val = 0x01; HAL_I2C_Mem_Write(&hi2c3, VL53L0X_ADDR, 0x0B, I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+
+            /* Afficher sur OLED */
+            if (vl53_range_mm == 0x1FFFU) {
+                UTIL_LCD_DisplayStringAt(0, LINE(3), (uint8_t *)"Range: hors portee", LEFT_MODE);
+            } else {
+                snprintf(disp, sizeof(disp), "Range: %5u mm  ", (unsigned)vl53_range_mm);
+                UTIL_LCD_DisplayStringAt(0, LINE(3), (uint8_t *)disp, LEFT_MODE);
+            }
+            BSP_LCD_Refresh(0);
+
+            /* <<< BREAKPOINT ICI — approcher/eloigner la main, observer vl53_range_mm >>> */
+            HAL_Delay(100);
+        }
+    }
+
+    /* ================================================================== */
+    /*  TEST 5 — PWM ramp: 0 % → 100 % in 11 steps of 500 ms            */
     /*                                                                     */
     /*  Watch: ramp_duty_cmp                                              */
     /*  Expected: left motor spins up progressively over ~5.5 s          */
     /* ================================================================== */
-    test_step = 4;
+    test_step = 5;
 
     Motor_Left_Forward();
 
@@ -249,12 +371,12 @@ int main(void)
     HAL_Delay(1000);
 
     /* ================================================================== */
-    /*  TEST 4 — Motor direction                                          */
+    /*  TEST 6 — Motor direction                                          */
     /*                                                                     */
     /*  Watch: dir_forward, dir_reverse, enc_raw                         */
     /*  Expected: encoder increments forward, decrements reverse          */
     /* ================================================================== */
-    test_step = 5;
+    test_step = 6;
 
     dir_forward = 1;
     Motor_Left_Forward();
