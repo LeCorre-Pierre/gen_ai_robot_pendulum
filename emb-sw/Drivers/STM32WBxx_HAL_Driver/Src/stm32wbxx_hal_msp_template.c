@@ -1,3 +1,5 @@
+/* Template file — disabled to prevent duplicate symbols with Core/Src/stm32wbxx_hal_msp.c */
+#if 0
 /**
   ******************************************************************************
   * @file    stm32wbxx_hal_msp_template.c
@@ -92,6 +94,7 @@ void HAL_PPP_MspDeInit(void)
 /**
   * @}
   */
+#endif /* template disabled */
 
 /**
   * @}

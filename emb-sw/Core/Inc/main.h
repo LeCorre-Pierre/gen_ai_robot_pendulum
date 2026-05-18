@@ -2,6 +2,8 @@
 #define MAIN_H
 
 #include "stm32wbxx_hal.h"
+#include "stm32wb5mm_dk_lcd.h"
+#include "stm32_lcd.h"
 
 /* HAL peripheral handles — defined in main.c */
 extern TIM_HandleTypeDef  htim1;   /* Left encoder QEI  — TIM1 */

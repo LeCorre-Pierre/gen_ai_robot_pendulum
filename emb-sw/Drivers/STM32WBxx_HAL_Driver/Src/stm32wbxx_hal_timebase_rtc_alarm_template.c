@@ -1,3 +1,5 @@
+/* Template file — disabled. SysTick is used as HAL timebase. */
+#if 0
 /**
   ******************************************************************************
   * @file    stm32wbxx_hal_timebase_rtc_alarm_template.c
@@ -354,3 +356,4 @@ void RTC_Alarm_IRQHandler(void)
 /**
   * @}
   */
+#endif /* template disabled */

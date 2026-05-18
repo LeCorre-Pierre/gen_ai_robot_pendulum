@@ -2,7 +2,7 @@
 #define ENCODER_H
 
 #include <stdint.h>
-#include "tim.h"
+#include "stm32wbxx_hal.h"
 
 typedef struct {
     TIM_HandleTypeDef *htim;

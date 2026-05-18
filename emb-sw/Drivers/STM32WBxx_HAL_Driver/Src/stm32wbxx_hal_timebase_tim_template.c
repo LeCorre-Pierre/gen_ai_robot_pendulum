@@ -1,3 +1,5 @@
+/* Template file — disabled. SysTick is used as HAL timebase. */
+#if 0
 /**
   ******************************************************************************
   * @file    stm32wbxx_hal_timebase_tim_template.c
@@ -209,3 +211,4 @@ void TIM2_IRQHandler(void)
 /**
   * @}
   */
+#endif /* template disabled */

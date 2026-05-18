@@ -75,27 +75,6 @@ extern "C" {
   
 #define STM32WB5MM_DK_GetTick BSP_GetTick
 
-/*Number of millisecond of audio at each DMA interrupt*/
-#define N_MS_PER_INTERRUPT               (20U)
- 
-#define AUDIO_IN_CHANNELS               1
-#define AUDIO_IN_SAMPLING_FREQUENCY     16000
-
-#define AUDIO_CHANNELS_OUT              1
-#define AUDIO_OUT_SAMPLING_FREQUENCY    16000
-
-#define AUDIO_IN_BUFFER_SIZE            DEFAULT_AUDIO_IN_BUFFER_SIZE  
-  
-#if (AUDIO_IN_SAMPLING_FREQUENCY == 8000)
-#define MAX_DECIMATION_FACTOR 160
-#else
-#define MAX_DECIMATION_FACTOR 128
-#endif
-
-#define MAX_MIC_FREQ                      1280  /*kHz - Maximum PDM clock */
-#define MAX_AUDIO_IN_CHANNEL_NBR_PER_IF   1 /* Maximum number of microhpones channels for peripheral interface */
-#define MAX_AUDIO_IN_CHANNEL_NBR_TOTAL    1
-
 #ifdef __cplusplus
 }
 #endif
