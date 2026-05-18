@@ -13,4 +13,9 @@
 
 #define COMPL_FILTER_ALPHA       0.98f   /* gyro weight in complementary filter */
 
+#define WHEEL_CIRCUMFERENCE_CM   22.0f /* */
+#define CM_PER_TICK              (WHEEL_CIRCUMFERENCE_CM / (float)ENCODER_TICKS_PER_REV)
+
+#define ENCODER_TICKS_PER_REV    1856u   /* 29:1 gearbox × 64 CPR */
+
 #endif /* CONFIG_H */

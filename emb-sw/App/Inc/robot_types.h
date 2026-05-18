@@ -25,4 +25,7 @@ typedef struct {
     float wheel_right_rads;
 } EncoderSample_t;
 
+Encoder_t g_enc_left;
+Encoder_t g_enc_right;
+
 #endif /* ROBOT_TYPES_H */
