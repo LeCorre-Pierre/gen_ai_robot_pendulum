@@ -61,8 +61,8 @@ extern uint32_t SystemCoreClock;
 #define configUSE_PREEMPTION                     1
 #define configSUPPORT_STATIC_ALLOCATION          1
 #define configSUPPORT_DYNAMIC_ALLOCATION         1
-#define configUSE_IDLE_HOOK                      0
-#define configUSE_TICK_HOOK                      0
+#define configUSE_IDLE_HOOK                      1
+#define configUSE_TICK_HOOK                      1
 #define configCPU_CLOCK_HZ                       ( SystemCoreClock )
 #define configTICK_RATE_HZ                       ((TickType_t)1000)
 #define configMAX_PRIORITIES                     ( 56 )
@@ -165,7 +165,8 @@ standard names. */
 #define USE_CUSTOM_SYSTICK_HANDLER_IMPLEMENTATION 0
 
 /* USER CODE BEGIN Defines */
-/* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
+#define traceTASK_SWITCHED_IN()  extern void StartIdleMonitor(void); StartIdleMonitor()
+#define traceTASK_SWITCHED_OUT() extern void EndIdleMonitor(void); EndIdleMonitor()
 /* USER CODE END Defines */
 
 #endif /* FREERTOS_CONFIG_H */

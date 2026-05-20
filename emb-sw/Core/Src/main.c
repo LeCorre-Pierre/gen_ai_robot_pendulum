@@ -4,6 +4,9 @@
 #include "task_safety.h"
 #include "task_control.h"
 #include "task_display.h"
+#include "tof.h"
+#include "env_sensor.h"
+#include "stm32wb5mm_dk_motion_sensors.h"
 
 Encoder_t g_enc_left;
 Encoder_t g_enc_right;
@@ -53,6 +56,10 @@ int main(void)
     // Initialize the encoder structures with their respective TIM handles
     Encoder_Init(&g_enc_left, &htim1);
     Encoder_Init(&g_enc_right, &htim2);
+
+    Tof_Init();
+    EnvSensor_Init();
+    BSP_MOTION_SENSOR_Init(MOTION_SENSOR_ISM330DHCX_0, MOTION_ACCELERO | MOTION_GYRO);
 
     // Initialize the RTOS kernel
     osKernelInitialize();
