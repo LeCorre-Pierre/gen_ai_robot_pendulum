@@ -34,26 +34,33 @@ extern "C" {
  * Configuration matérielle — à synchroniser avec CubeMX
  * ============================================================================ */
 
-/* --- Handles HAL (noms générés par CubeMX) -------------------------------- */
-#define MTR_PWM_TIM             htim1   /* TIM1 : PWM moteurs            */
-#define MTR_ENC_TIM_LEFT        htim2   /* TIM2 : encodeur moteur gauche */
-#define MTR_ENC_TIM_RIGHT       htim3   /* TIM3 : encodeur moteur droit  */
-#define MTR_ADC                 hadc1   /* ADC1 : courant moteurs        */
+/* --- Handles HAL ---------------------------------------------------------- */
+/* PWM moteur gauche : LPTIM1_OUT / PC1 / Arduino A3
+ * PWM moteur droit  : TIM16_CH1  / PE0 / Arduino D6
+ * Encodeur gauche   : TIM1 16-bit / PD14=CH1, PD15=CH2
+ * Encodeur droit    : TIM2 32-bit / PA15=CH1, PB3=CH2           */
+#define MTR_PWM_LPTIM_LEFT      hlptim1  /* LPTIM1 : PWM moteur gauche (PC1)  */
+#define MTR_PWM_TIM_RIGHT       htim16   /* TIM16  : PWM moteur droit  (PE0)  */
+#define MTR_ENC_TIM_LEFT        htim1    /* TIM1   : encodeur gauche          */
+#define MTR_ENC_TIM_RIGHT       htim2    /* TIM2   : encodeur droit           */
+#define MTR_ADC                 hadc1    /* ADC1   : courant moteurs          */
 
-/* --- Canaux PWM (TIM1) ---------------------------------------------------- */
-#define MTR_PWM_CH_LEFT         TIM_CHANNEL_1   /* PD14 — Arduino D3  */
-#define MTR_PWM_CH_RIGHT        TIM_CHANNEL_2   /* PD15 — Arduino D9  */
+/* --- Canal PWM TIM16 ------------------------------------------------------ */
+/* LPTIM1 n'a qu'une sortie (pas de notion de canal TIM_CHANNEL_x).
+ * TIM16 n'a qu'un canal de sortie.                               */
+#define MTR_PWM_CH_RIGHT        TIM_CHANNEL_1   /* PE0 — Arduino D6  */
 
-/** Valeur ARR configurée dans CubeMX pour TIM1.
- *  Compare range : [0 .. MTR_PWM_PERIOD].
- *  Exemple : 64 MHz / PSC=63 / ARR=999 → 1 kHz PWM */
-#define MTR_PWM_PERIOD          1000U
+/** Période PWM commune : 20 kHz.
+ *  LPTIM1 : PCLK1=64 MHz, ARR = MTR_PWM_PERIOD-1 = 3199 → 64 MHz/3200 = 20 kHz
+ *  TIM16  : PCLK2=64 MHz, ARR = MTR_PWM_PERIOD-1 = 3199 → 64 MHz/3200 = 20 kHz
+ *  Plage compare : [0 .. MTR_PWM_PERIOD-1].                      */
+#define MTR_PWM_PERIOD          3200U
 
 /* --- GPIOs Direction ------------------------------------------------------- */
 #define MTR_DIR_LEFT_PORT       GPIOD
 #define MTR_DIR_LEFT_PIN        GPIO_PIN_12     /* PD12 — Arduino D2  */
 #define MTR_DIR_RIGHT_PORT      GPIOE
-#define MTR_DIR_RIGHT_PIN       GPIO_PIN_4      /* PE4  — Arduino D4  */
+#define MTR_DIR_RIGHT_PIN       GPIO_PIN_3      /* PE3  — Arduino D4  */
 
 /* Niveau logique = "avant" pour chaque moteur (inverser si câblage inversé) */
 #define MTR_DIR_FORWARD         GPIO_PIN_SET
@@ -62,13 +69,13 @@ extern "C" {
 /* --- GPIOs Frein ---------------------------------------------------------- */
 #define MTR_BRAKE_LEFT_PORT     GPIOD
 #define MTR_BRAKE_LEFT_PIN      GPIO_PIN_13     /* PD13 — Arduino D8  */
-#define MTR_BRAKE_RIGHT_PORT    GPIOE
-#define MTR_BRAKE_RIGHT_PIN     GPIO_PIN_0      /* PE0  — Arduino D6  */
+#define MTR_BRAKE_RIGHT_PORT    GPIOB
+#define MTR_BRAKE_RIGHT_PIN     GPIO_PIN_2      /* PB2  — Arduino D7  */
 
 /* --- Encodeurs (TIM_ENCODERMODE_TI12, ×4 quadrature) ---------------------- */
 /** 64 CPR × 4 (TI12 ×4) × réduction 29:1 = 7424 ticks/tour de roue.
- *  TIM2 est 32-bit (pas de débordement logiciel nécessaire).
- *  TIM3 est 16-bit (accumulation 32-bit gérée par MTR_GetEncoderCount). */
+ *  TIM1 est 16-bit (accumulation 32-bit gérée par MTR_GetEncoderCount).
+ *  TIM2 est 32-bit (le delta uint16→int16 reste correct tant que Δ < 32767). */
 #define MTR_ENC_TICKS_PER_REV   7424U
 
 /* --- ADC courant (sensing résistances shield, 1.65 V/A, 3.3 V = 2 A) ----- */

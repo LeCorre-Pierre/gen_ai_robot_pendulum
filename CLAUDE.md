@@ -19,7 +19,7 @@ The STM32 is the sole master of the control loop. The PC app is an engineering/t
 
 Must run from the build directory:
 ```bash
-cd /d/Projects/gen_ai_robot_pendulum/stm32wb5mm-dk/Debug
+cd /d/Projects/gen_ai_robot_pendulum/emb-sw/Debug
 make -j16 all      # build
 make -j16 clean    # clean
 ```
@@ -59,32 +59,41 @@ python -m serial.tools.miniterm COM4 115200
 
 **Board:** MB1292B (STM32WB5MMG — Cortex-M4 @ 64 MHz + M0+ @ 32 MHz for BLE 5.2)
 
-**Project root:** `stm32wb5mm-dk/`
+**Project root:** `emb-sw/`
 
-**Key source files:**
-- `Src/main.c` — entry point, peripheral init
-- `Src/stm32wbxx_hal_msp.c` — HAL MSP callbacks (peripheral low-level init)
-- `Src/stm32wbxx_it.c` — interrupt handlers
-- `Inc/main.h` — main header
-- `Inc/pin_mapping.h` — pin definitions
+**Structure des sources :**
+```
+emb-sw/
+├── Core/Src/
+│   ├── main.c                  — entry point, init périphériques HAL, démarrage RTOS
+│   ├── stm32wbxx_it.c          — gestionnaires d'interruptions
+│   ├── sysmem.c                — _sbrk (heap newlib-nano)
+│   └── syscalls.c              — stubs minimaux newlib-nano
+├── App/Src/
+│   ├── task_display.c          — écrans LCD (6 écrans + SCREEN_MOTOR)
+│   ├── task_control.c          — boucle de contrôle 200 Hz (stub)
+│   ├── task_safety.c           — surveillance sécurité (stub)
+│   └── task_comms.c            — télémétrie UART/BLE (stub)
+└── Utilities/
+    ├── MotorControl/motor_control.c/h      — API 14 fonctions (MTR_*)
+    ├── Control/pid_controller.c/h          — PID générique anti-windup
+    ├── Control/cascade_balance_controller.c/h — cascade PID équilibre
+    ├── AngleEstimator/angle_estimator.c/h  — filtre complémentaire/Kalman
+    ├── Encoder/encoder.c/h                 — accumulation QEI 32-bit
+    └── Protocol/vcp_protocol.c/h           — trame VCP (framing + CRC16)
+```
 
-**Control modules:** (à créer dans `Src/` ou un sous-dossier dédié)
-- `pid_controller.c/h` — generic PID with anti-windup (planned)
-- `cascade_balance_controller.c/h` — cascade PID (outer velocity → inner angle) (planned)
-
-**IMU:** ISM330DHCX onboard MB1292B, connected via I2C3 (PB13=SCL, PB11=SDA), address `0x6B`. Driver: `stm32wb5mm-dk/Drivers/BSP/Components/ism330dhcx/`. Do not add an external IMU.
+**IMU:** ISM330DHCX onboard MB1292B, connected via I2C3 (PB13=SCL, PB11=SDA), address `0x6B`. Driver: `emb-sw/Drivers/BSP/Components/ism330dhcx/`. Do not add an external IMU.
 
 **CubeIDE project files** — toujours modifier directement ces fichiers source pour changer les propriétés du projet :
-- `stm32wb5mm-dk/.project`
-- `stm32wb5mm-dk/.cproject`
+- `emb-sw/.project`
+- `emb-sw/.cproject`
 
 > **Ne jamais éditer** les artefacts générés à la compilation (`Debug/makefile`, `Debug/objects.list`, fichiers `*.d`, `subdir.mk`, etc.). Ces fichiers sont regénérés par CubeIDE/make à chaque build et toute modification manuelle sera écrasée.
 
-**Syscall stubs newlib-nano** — `--specs=nano.specs` exige `_sbrk` et d'autres stubs que CubeIDE génère normalement. Ces fichiers ont été créés manuellement car le projet avait "System calls: None" sans les fournir :
-- `Src/sysmem.c` — implémente `_sbrk` (gestion heap, utilise `_end`/`_estack`/`_Min_Stack_Size` du linker script)
-- `Src/syscalls.c` — stubs minimaux (`_write`, `_read`, `_close`, etc.)
-
-CubeIDE les gère désormais via `objects.list`. `stm32wb5mm-dk/makefile.defs` est un fichier vide prévu pour des overrides manuels (`USER_OBJS`) si besoin — ne pas y dupliquer des fichiers déjà dans `objects.list`.
+**Syscall stubs newlib-nano** — `--specs=nano.specs` exige `_sbrk` et d'autres stubs :
+- `Core/Src/sysmem.c` — implémente `_sbrk` (gestion heap)
+- `Core/Src/syscalls.c` — stubs minimaux (`_write`, `_read`, `_close`, etc.)
 
 ---
 
@@ -111,7 +120,15 @@ CubeIDE les gère désormais via `objects.list`. `stm32wb5mm-dk/makefile.defs` e
 
 **Do not use:** PA8/PA9 (microphones), PB0/PB1 (not routed on MB1292B), D10–D13 (SPI1/OLED).
 
-TIM1 and TIM2 are exclusively for encoders (QEI mode). PWM uses LPTIM1 (20 kHz, PC1) and TIM16 (PE0).
+TIM1 and TIM2 are exclusively for encoders (QEI mode). In encoder interface mode the counter tracks position, not time — output compare on CH3/CH4 cannot produce PWM. PWM uses LPTIM1 (PC1, PCLK1=64 MHz, ARR=3200 → 20 kHz, 11.6-bit resolution) and TIM16_CH1 (PE0).
+
+**CubeMX actions required** (see `4-stm32wb5m-pins-allocations.txt` §5 for details):
+1. PB3 : SYS_JTDO-SWO → TIM2_CH2
+2. PB10 : remove TIM2_CH3 → unassigned
+3. PC1 : ADCx_IN2 → LPTIM1_OUT (continuous PWM, not counter mode)
+4. PB2, PD13, PE3, PD12 : set as GPIO_Output
+
+**Encoder resolution:** 64 CPR × 29:1 gearbox = **1856 pulses/rev** (raw). Firmware uses quadrature ×4 mode → **7424 ticks/rev** (value used in `MTR_ENC_TICKS_PER_REV`).
 
 ---
 
@@ -181,3 +198,9 @@ Motor resolution: 29:1 gearbox × 64 CPR encoder = **1856 ticks/revolution effec
 | `app-pc-monitor/app-pc-monitor.md` | Full PC app specification (panels, protocol, architecture) |
 | `parts/` | Hardware datasheets and notes |
 | `6-connections_colors.md` | Wire color convention (DIR=grey, PWM=purple, Brake=blue, Current=green) |
+
+CubeProgrammer Path
+C:\ST\STM32CubeIDE_2.1.1\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.400.202601091506\tools\bin
+
+STlink GDBserver
+C:\ST\STM32CubeIDE_2.1.1\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.stlink-gdb-server.win32_2.2.400.202601091506\tools\bin

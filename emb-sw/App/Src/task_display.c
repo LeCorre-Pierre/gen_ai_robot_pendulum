@@ -14,6 +14,7 @@
 #include "cpu_utils.h"
 #include <math.h>
 #include <stdio.h>
+#include "motor_control.h"
 
 #define DISPLAY_TASK_STACK_SIZE  384U
 #define DISPLAY_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
@@ -37,6 +38,18 @@
 #define GRAPH_BASELINE      (GRAPH_Y_TOP + GRAPH_H)   /* y=61             */
 #define GRAPH_MAX_MM        1000U   /* full-scale = 100 cm                */
 
+/* Motor screen: B1 cycles through these presets (0 → 25% → … → -100% → 0) */
+#define MOTOR_PRESET_COUNT  9U
+static const float k_motor_presets[MOTOR_PRESET_COUNT] = {
+    0.00f, 0.25f, 0.50f, 0.75f, 1.00f,
+   -0.25f, -0.50f, -0.75f, -1.00f
+};
+
+/* Motor PWM bar geometry (pixels) */
+#define MBAR_X   48U    /* bar left edge                              */
+#define MBAR_W   78U    /* bar total width (fill area = MBAR_W - 2)  */
+#define MBAR_H    9U    /* bar height                                 */
+
 typedef enum {
     SCREEN_ENCODER = 0,
     SCREEN_TOF,
@@ -44,11 +57,14 @@ typedef enum {
     SCREEN_IMU,
     SCREEN_GYRO,
     SCREEN_SYSTEM,
+    SCREEN_MOTOR,
     SCREEN_COUNT
 } Screen_t;
 
-static Screen_t s_screen    = SCREEN_ENCODER;
+static Screen_t s_screen    = SCREEN_MOTOR;
 static uint8_t  s_btn2_prev = 1U;
+static uint8_t  s_btn1_prev = 1U;
+static uint8_t  s_motor_preset_idx = 0U;
 
 /* Env sensor: session min/max */
 static float s_temp_min =  999.0f;
@@ -72,6 +88,7 @@ static void Screen_DrawEnv(float temp);
 static void Screen_DrawImu(MOTION_SENSOR_Axes_t accel, uint8_t calibrated, float tilt_deg);
 static void Screen_DrawGyro(MOTION_SENSOR_Axes_t gyro);
 static void Screen_DrawSystem(void);
+static void Screen_DrawMotor(float speed);
 
 
 void StartDisplayTask(void)
@@ -275,17 +292,60 @@ static void Screen_DrawSystem(void)
     BSP_LCD_Refresh(0);
 }
 
+static void Screen_DrawMotor(float speed)
+{
+    char buf[22];
+    int  pct  = (int)(speed * 100.0f);
+    uint32_t fill = (uint32_t)((float)(MBAR_W - 2U) * fabsf(speed));
+
+    BSP_LCD_Clear(0, SSD1315_COLOR_BLACK);
+    UTIL_LCD_SetFont(&Font12);
+
+    UTIL_LCD_DisplayStringAt(0, 2, (uint8_t *)"Motor Control", CENTER_MODE);
+
+    /* Left motor: label + bar */
+    snprintf(buf, sizeof(buf), "L%+4d%%", pct);
+    UTIL_LCD_DisplayStringAt(2, 16, (uint8_t *)buf, LEFT_MODE);
+    UTIL_LCD_DrawRect(MBAR_X, 17U, MBAR_W, MBAR_H, SSD1315_COLOR_WHITE);
+    if (fill > 0U) {
+        UTIL_LCD_FillRect(MBAR_X + 1U, 18U, fill, MBAR_H - 2U, SSD1315_COLOR_WHITE);
+    }
+
+    /* Right motor: label + bar */
+    snprintf(buf, sizeof(buf), "R%+4d%%", pct);
+    UTIL_LCD_DisplayStringAt(2, 30, (uint8_t *)buf, LEFT_MODE);
+    UTIL_LCD_DrawRect(MBAR_X, 31U, MBAR_W, MBAR_H, SSD1315_COLOR_WHITE);
+    if (fill > 0U) {
+        UTIL_LCD_FillRect(MBAR_X + 1U, 32U, fill, MBAR_H - 2U, SSD1315_COLOR_WHITE);
+    }
+
+    /* Direction label */
+    if (speed > 0.01f) {
+        UTIL_LCD_DisplayStringAt(0, 43, (uint8_t *)"[ FWD ]", CENTER_MODE);
+    } else if (speed < -0.01f) {
+        UTIL_LCD_DisplayStringAt(0, 43, (uint8_t *)"[ BWD ]", CENTER_MODE);
+    } else {
+        UTIL_LCD_DisplayStringAt(0, 43, (uint8_t *)"[ STOP ]", CENTER_MODE);
+    }
+
+    /* Button hints */
+    UTIL_LCD_DisplayStringAt(2, 53, (uint8_t *)"B1:cycle  B2:exit", LEFT_MODE);
+
+    BSP_LCD_Refresh(0);
+}
+
 static void DisplayTask(void *pvParameters)
 {
     (void)pvParameters;
 
-    TickType_t last_wake   = xTaskGetTickCount();
-    Screen_t   last_screen = SCREEN_COUNT;  /* force first draw */
-    int32_t    last_right  = 0;
-    int32_t    last_left   = 0;
+    TickType_t last_wake        = xTaskGetTickCount();
+    Screen_t   last_screen      = SCREEN_COUNT;  /* force first draw */
+    int32_t    last_right       = 0;
+    int32_t    last_left        = 0;
+    uint8_t    last_preset_idx  = MOTOR_PRESET_COUNT;  /* invalid → force first draw */
 
     for (;;) {
-        /* B2: advance to the next screen. */
+        /* B2: advance to the next screen (edge-triggered). */
         if (BSP_PB_GetState(BUTTON_USER2) == GPIO_PIN_RESET) {
             if (s_btn2_prev == 1U) {
                 s_screen = (s_screen + 1U) % SCREEN_COUNT;
@@ -293,6 +353,13 @@ static void DisplayTask(void *pvParameters)
             s_btn2_prev = 0U;
         } else {
             s_btn2_prev = 1U;
+        }
+
+        /* Coast motors and reset preset when leaving the motor screen. */
+        if (s_screen != last_screen && last_screen == SCREEN_MOTOR) {
+            MTR_Coast(MTR_LEFT);
+            MTR_Coast(MTR_RIGHT);
+            s_motor_preset_idx = 0U;
         }
 
         switch (s_screen) {
@@ -386,6 +453,28 @@ static void DisplayTask(void *pvParameters)
 
             case SCREEN_SYSTEM: {
                 Screen_DrawSystem();
+                break;
+            }
+
+            case SCREEN_MOTOR: {
+                /* B1 edge: step to the next preset and apply it. */
+                uint8_t b1_now = BSP_PB_GetState(BUTTON_USER1);
+                /* Sync state on entry so a held B1 doesn't trigger immediately. */
+                if (s_screen != last_screen) {
+                    s_btn1_prev = (b1_now == GPIO_PIN_RESET) ? 0U : 1U;
+                }
+                if (b1_now == GPIO_PIN_RESET && s_btn1_prev == 1U) {
+                    s_motor_preset_idx = (s_motor_preset_idx + 1U) % MOTOR_PRESET_COUNT;
+                    float spd = k_motor_presets[s_motor_preset_idx];
+                    MTR_SetSpeed(MTR_LEFT,  spd);
+                    MTR_SetSpeed(MTR_RIGHT, spd);
+                }
+                s_btn1_prev = (b1_now == GPIO_PIN_RESET) ? 0U : 1U;
+
+                if (s_screen != last_screen || s_motor_preset_idx != last_preset_idx) {
+                    Screen_DrawMotor(k_motor_presets[s_motor_preset_idx]);
+                    last_preset_idx = s_motor_preset_idx;
+                }
                 break;
             }
 

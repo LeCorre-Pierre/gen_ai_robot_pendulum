@@ -7,6 +7,7 @@
 #include "tof.h"
 #include "env_sensor.h"
 #include "stm32wb5mm_dk_motion_sensors.h"
+#include "motor_control.h"
 
 Encoder_t g_enc_left;
 Encoder_t g_enc_right;
@@ -56,6 +57,9 @@ int main(void)
     // Initialize the encoder structures with their respective TIM handles
     Encoder_Init(&g_enc_left, &htim1);
     Encoder_Init(&g_enc_right, &htim2);
+
+    // Initialize motor control (starts LPTIM1 PWM, TIM16 PWM, encoder snapshots)
+    MTR_Init();
 
     Tof_Init();
     EnvSensor_Init();
@@ -148,18 +152,139 @@ void Screen_DisplayStartupLogo(void)
 
 static void MX_GPIO_Init(void)
 {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
     __HAL_RCC_GPIOE_CLK_ENABLE();
+
+    /* Initial output state: DIR=LOW, BRAKE=LOW (coast) */
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12 | GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3,                GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2,                GPIO_PIN_RESET);
+
+    /* PD12=MOTOR_LEFT_DIR, PD13=MOTOR_LEFT_BRAKE */
+    GPIO_InitStruct.Pin   = GPIO_PIN_12 | GPIO_PIN_13;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+    /* PE3=MOTOR_RIGHT_DIR */
+    GPIO_InitStruct.Pin = GPIO_PIN_3;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+    /* PB2=MOTOR_RIGHT_BRAKE */
+    GPIO_InitStruct.Pin = GPIO_PIN_2;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
-static void MX_TIM16_Init(void)      { /* TODO: PWM moteur droit 20 kHz */ }
-static void MX_LPTIM1_Init(void)     { /* TODO: PWM moteur gauche 20 kHz */ }
+static void MX_TIM16_Init(void)
+{
+    GPIO_InitTypeDef    GPIO_InitStruct = {0};
+    TIM_OC_InitTypeDef  sConfigOC       = {0};
+
+    __HAL_RCC_TIM16_CLK_ENABLE();
+
+    /* PE0 = TIM16_CH1 (MOTOR_RIGHT_PWM, Arduino D6) */
+    GPIO_InitStruct.Pin       = GPIO_PIN_0;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF14_TIM16;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+    /* TIM16: PSC=0, ARR=3199 → 64 MHz / 3200 = 20 kHz */
+    htim16.Instance               = TIM16;
+    htim16.Init.Prescaler         = 0;
+    htim16.Init.CounterMode       = TIM_COUNTERMODE_UP;
+    htim16.Init.Period            = MTR_PWM_PERIOD - 1U;
+    htim16.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
+    htim16.Init.RepetitionCounter = 0;
+    htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    if (HAL_TIM_PWM_Init(&htim16) != HAL_OK) { Error_Handler(); }
+
+    sConfigOC.OCMode      = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse       = 0;
+    sConfigOC.OCPolarity  = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode  = TIM_OCFAST_DISABLE;
+    sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+    if (HAL_TIM_PWM_ConfigChannel(&htim16, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) { Error_Handler(); }
+    /* MTR_Init() starts the channel via HAL_TIM_PWM_Start */
+}
+
+static void MX_LPTIM1_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    __HAL_RCC_LPTIM1_CLK_ENABLE();
+
+    /* PC1 = LPTIM1_OUT (MOTOR_LEFT_PWM, Arduino A3) */
+    GPIO_InitStruct.Pin       = GPIO_PIN_1;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF1_LPTIM1;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* LPTIM1: PCLK1=64 MHz, DIV1 → ARR=3199 → 20 kHz */
+    hlptim1.Instance                              = LPTIM1;
+    hlptim1.Init.Clock.Source                     = LPTIM_CLOCKSOURCE_APBCLOCK_LPOSC;
+    hlptim1.Init.Clock.Prescaler                  = LPTIM_PRESCALER_DIV1;
+    hlptim1.Init.UltraLowPowerClock.Polarity      = LPTIM_CLOCKPOLARITY_RISING;
+    hlptim1.Init.UltraLowPowerClock.SampleTime    = LPTIM_CLOCKSAMPLETIME_DIRECTTRANSITION;
+    hlptim1.Init.Trigger.Source                   = LPTIM_TRIGSOURCE_SOFTWARE;
+    hlptim1.Init.Trigger.ActiveEdge               = LPTIM_ACTIVEEDGE_RISING;
+    hlptim1.Init.Trigger.SampleTime               = LPTIM_TRIGSAMPLETIME_DIRECTTRANSITION;
+    hlptim1.Init.OutputPolarity                   = LPTIM_OUTPUTPOLARITY_HIGH;
+    hlptim1.Init.UpdateMode                       = LPTIM_UPDATE_IMMEDIATE;
+    hlptim1.Init.CounterSource                    = LPTIM_COUNTERSOURCE_INTERNAL;
+    hlptim1.Init.Input1Source                     = LPTIM_INPUT1SOURCE_GPIO;
+    hlptim1.Init.Input2Source                     = LPTIM_INPUT2SOURCE_GPIO;
+    if (HAL_LPTIM_Init(&hlptim1) != HAL_OK) { Error_Handler(); }
+    /* MTR_Init() starts PWM via HAL_LPTIM_PWM_Start */
+}
+
 static void MX_I2C3_Init(void)       { /* TODO: IMU ISM330DHCX */ }
 static void MX_USART1_UART_Init(void){ /* TODO: VCP 115200 */ }
-static void MX_ADC1_Init(void)       { /* TODO: current sense IN4/IN10 */ }
+
+static void MX_ADC1_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    __HAL_RCC_ADC_CLK_ENABLE();
+
+    /* PA5=ADC1_IN10 (left current), PC3=ADC1_IN4 (right current) */
+    GPIO_InitStruct.Pin  = GPIO_PIN_5;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_3;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* STM32WB5 a un seul ADC — pas de multi-mode */
+    hadc1.Instance                   = ADC1;
+    hadc1.Init.ClockPrescaler        = ADC_CLOCK_ASYNC_DIV1;
+    hadc1.Init.Resolution            = ADC_RESOLUTION_12B;
+    hadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
+    hadc1.Init.ScanConvMode          = ADC_SCAN_DISABLE;
+    hadc1.Init.EOCSelection          = ADC_EOC_SINGLE_CONV;
+    hadc1.Init.LowPowerAutoWait      = DISABLE;
+    hadc1.Init.ContinuousConvMode    = DISABLE;
+    hadc1.Init.NbrOfConversion       = 1;
+    hadc1.Init.DiscontinuousConvMode = DISABLE;
+    hadc1.Init.ExternalTrigConv      = ADC_SOFTWARE_START;
+    hadc1.Init.ExternalTrigConvEdge  = ADC_EXTERNALTRIGCONVEDGE_NONE;
+    hadc1.Init.DMAContinuousRequests = DISABLE;
+    hadc1.Init.Overrun               = ADC_OVR_DATA_OVERWRITTEN;
+    hadc1.Init.OversamplingMode      = DISABLE;
+    if (HAL_ADC_Init(&hadc1) != HAL_OK) { Error_Handler(); }
+
+    HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
+}
 
 void Error_Handler(void)
 {
