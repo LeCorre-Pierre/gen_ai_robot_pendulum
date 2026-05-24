@@ -4,12 +4,12 @@
  * @brief   DC Motor Control Library — Niveau Complet (14 fonctions)
  *          Cible : STM32WB5MMG (MB1292B) + Arduino Motor Shield Rev3 (L298P)
  *
- * Mapping matériel validé contre 3-gpio-mapping.md (v0.2, 2026-03-16) :
- *   PWM    : TIM1_CH1 / PD14 (moteur gauche)
- *            TIM1_CH2 / PD15 (moteur droit)
- *   DIR    : PD12 (gauche), PE4 (droit)
- *   BRAKE  : PD13 (gauche), PE0 (droit)
- *   ENC    : TIM2 32-bit PA15/PB3 (gauche), TIM3 16-bit PB4/PC7 (droit)
+ * Mapping matériel :
+ *   PWM    : LPTIM1_OUT / PC1 (moteur gauche) — duty = (ARR−CMP)/(ARR+1), CMP inversé vs TIM
+ *            TIM16_CH1  / PE0 (moteur droit)
+ *   DIR    : PD12 (gauche), PE3 (droit)
+ *   BRAKE  : PD13 (gauche), PB2 (droit)
+ *   ENC    : TIM1 16-bit PD14/PD15 (gauche), TIM2 32-bit PA15/PB3 (droit)
  *   ADC CS : PA5 ADC1_IN10 (gauche), PC3 ADC1_IN4 (droit)
  *
  * Logique de commande L298P (Arduino Motor Shield Rev3) :
@@ -60,11 +60,12 @@ extern "C" {
 #define MTR_DIR_LEFT_PORT       GPIOD
 #define MTR_DIR_LEFT_PIN        GPIO_PIN_12     /* PD12 — Arduino D2  */
 #define MTR_DIR_RIGHT_PORT      GPIOE
-#define MTR_DIR_RIGHT_PIN       GPIO_PIN_3      /* PE3  — Arduino D4  */
+#define MTR_DIR_RIGHT_PIN       GPIO_PIN_4      /* PE4  — Arduino D4 (PE3 = STMOD+ pin 11, non routé sur Arduino) */
 
-/* Niveau logique = "avant" pour chaque moteur (inverser si câblage inversé) */
-#define MTR_DIR_FORWARD         GPIO_PIN_SET
-#define MTR_DIR_BACKWARD        GPIO_PIN_RESET
+/* Polarité "avant" par moteur — les moteurs sont montés côtés opposés du robot,
+ * donc le sens physique "roue vers l'avant" correspond à un niveau logique inversé. */
+#define MTR_DIR_FWD_LEFT        GPIO_PIN_SET      /* PD12 HIGH = avant gauche  */
+#define MTR_DIR_FWD_RIGHT       GPIO_PIN_RESET    /* PE3  LOW  = avant droit   */
 
 /* --- GPIOs Frein ---------------------------------------------------------- */
 #define MTR_BRAKE_LEFT_PORT     GPIOD

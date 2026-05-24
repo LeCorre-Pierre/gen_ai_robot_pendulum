@@ -71,7 +71,7 @@ PB3 conflicts with SWO. SWO debug trace must be disabled in firmware configurati
 |-----------------|---------------------|------|------------|-------------|
 | Left direction  | MOTOR_LEFT_DIR      | PD12 | Arduino D2 | GPIO output |
 | Left brake      | MOTOR_LEFT_BRAKE    | PD13 | Arduino D8 | GPIO output |
-| Right direction | MOTOR_RIGHT_DIR     | PE3  | Arduino D4 | GPIO output |
+| Right direction | MOTOR_RIGHT_DIR     | PE4  | Arduino D4 | GPIO output |
 | Right brake     | MOTOR_RIGHT_BRAKE   | PB2  | Arduino D7 | GPIO output |
 
 ------------------------------------------------------------
@@ -103,7 +103,7 @@ Arduino header:
 |-----|-------|---------------------------|
 | D2  | PD12  | MOTOR_LEFT_DIR            |
 | D3  | PD14  | ENC_LEFT_CHA              |
-| D4  | PE3   | MOTOR_RIGHT_DIR           |
+| D4  | PE4   | MOTOR_RIGHT_DIR           |
 | D6  | PE0   | MOTOR_RIGHT_PWM           |
 | D7  | PB2   | MOTOR_RIGHT_BRAKE         |
 | D8  | PD13  | MOTOR_LEFT_BRAKE          |
@@ -161,5 +161,6 @@ Reserved by native MB1292B functions — do not use:
 3. PC1  : change signal ADCx_IN2      -> LPTIM1_OUT
 4. LPTIM1 : remove counterMode config -> enable continuous PWM output on PC1
             clock source = PCLK1 (64 MHz)
-5. PB2, PD13, PE3, PD12 : set as GPIO_Output (currently GPIO_Input in .ioc)
+5. PB2, PD13, PE4, PD12 : set as GPIO_Output (currently GPIO_Input in .ioc)
+   Note: PE3 = STMOD+ pin 11 (INT), non routé sur Arduino — ne pas confondre avec PE4
 6. Confirm TIM16 / PE0 has no conflict with RGB LED or IR native behavior

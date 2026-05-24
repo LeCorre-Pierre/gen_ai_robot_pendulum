@@ -99,7 +99,7 @@ static void MTR_ApplyPWM(MTR_Id_t motor, MTR_Speed_t speed)
     if (abs_speed < mtr.deadband[motor])
     {
         if (motor == MTR_LEFT) {
-            __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, 0U);
+            __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U); /* CMP=ARR → duty≈0% */
         } else {
             __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
         }
@@ -110,16 +110,18 @@ static void MTR_ApplyPWM(MTR_Id_t motor, MTR_Speed_t speed)
     /* Désactivation du frein avant tout changement de direction */
     HAL_GPIO_WritePin(brake_port, brake_pin, GPIO_PIN_RESET);
 
-    /* Sens de rotation */
-    HAL_GPIO_WritePin(dir_port, dir_pin,
-                      (speed >= 0.0f) ? MTR_DIR_FORWARD : MTR_DIR_BACKWARD);
+    /* Sens de rotation — polarité par moteur (câblage inversé gauche/droite) */
+    GPIO_PinState fwd = (motor == MTR_LEFT) ? MTR_DIR_FWD_LEFT : MTR_DIR_FWD_RIGHT;
+    GPIO_PinState bwd = (fwd == GPIO_PIN_SET) ? GPIO_PIN_RESET : GPIO_PIN_SET;
+    HAL_GPIO_WritePin(dir_port, dir_pin, (speed >= 0.0f) ? fwd : bwd);
 
     /* Rapport cyclique proportionnel à |speed| — plage [0 .. MTR_PWM_PERIOD-1] */
     uint32_t compare = (uint32_t)(abs_speed * (float)(MTR_PWM_PERIOD - 1U));
     if (compare >= MTR_PWM_PERIOD) { compare = MTR_PWM_PERIOD - 1U; }
 
     if (motor == MTR_LEFT) {
-        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, compare);
+        /* LPTIM1: duty = (ARR - CMP) / (ARR+1) → inverser compare pour même sens que TIM */
+        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, (MTR_PWM_PERIOD - 1U) - compare);
     } else {
         __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, compare);
     }
@@ -172,9 +174,10 @@ MTR_Status_t MTR_Init(void)
         mtr.enc_vel_tick[i]    = 0U;
     }
 
-    /* Démarrage PWM gauche : LPTIM1 (PC1, 20 kHz, ARR=3199, CMP initial=0) */
+    /* Démarrage PWM gauche : LPTIM1 (PC1, 20 kHz, ARR=3199).
+     * LPTIM1 duty = (ARR - CMP) / (ARR+1), donc CMP=ARR-1 → duty≈0% (moteur arrêté). */
     if (HAL_LPTIM_PWM_Start(&MTR_PWM_LPTIM_LEFT,
-                             MTR_PWM_PERIOD - 1U, 0U) != HAL_OK) { return MTR_ERR_FAULT; }
+                             MTR_PWM_PERIOD - 1U, MTR_PWM_PERIOD - 1U) != HAL_OK) { return MTR_ERR_FAULT; }
 
     /* Démarrage PWM droit : TIM16_CH1 (PE0, 20 kHz) */
     if (HAL_TIM_PWM_Start(&MTR_PWM_TIM_RIGHT,
@@ -184,10 +187,10 @@ MTR_Status_t MTR_Init(void)
     mtr.enc_prev_raw[MTR_LEFT]  = (uint16_t)__HAL_TIM_GET_COUNTER(&MTR_ENC_TIM_LEFT);
     mtr.enc_prev_raw[MTR_RIGHT] = (uint16_t)__HAL_TIM_GET_COUNTER(&MTR_ENC_TIM_RIGHT);
 
-    /* Mettre les moteurs en roue libre (BRAKE=0, CMP=0) */
+    /* Mettre les moteurs en roue libre (BRAKE=0, CMP → duty 0%) */
     HAL_GPIO_WritePin(MTR_BRAKE_LEFT_PORT,  MTR_BRAKE_LEFT_PIN,  GPIO_PIN_RESET);
     HAL_GPIO_WritePin(MTR_BRAKE_RIGHT_PORT, MTR_BRAKE_RIGHT_PIN, GPIO_PIN_RESET);
-    __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, 0U);
+    __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U); /* LPTIM: CMP=ARR → duty≈0% */
     __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
 
     mtr.initialized = 1U;
@@ -213,9 +216,9 @@ MTR_Status_t MTR_Brake(MTR_Id_t motor)
     if (!mtr.initialized)  { return MTR_ERR_NOT_INIT; }
     if (motor > MTR_RIGHT) { return MTR_ERR_INVALID_PARAM; }
 
-    /* PWM à 0, BRAKE = HIGH → court-circuit induit moteur */
+    /* PWM → duty 0%, BRAKE = HIGH → court-circuit induit moteur */
     if (motor == MTR_LEFT) {
-        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, 0U);
+        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U); /* CMP=ARR → duty≈0% */
         HAL_GPIO_WritePin(MTR_BRAKE_LEFT_PORT,  MTR_BRAKE_LEFT_PIN,  GPIO_PIN_SET);
     } else {
         __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
@@ -229,9 +232,9 @@ MTR_Status_t MTR_Coast(MTR_Id_t motor)
     if (!mtr.initialized)  { return MTR_ERR_NOT_INIT; }
     if (motor > MTR_RIGHT) { return MTR_ERR_INVALID_PARAM; }
 
-    /* PWM à 0, BRAKE = LOW → roue libre */
+    /* PWM → duty 0%, BRAKE = LOW → roue libre */
     if (motor == MTR_LEFT) {
-        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, 0U);
+        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U); /* CMP=ARR → duty≈0% */
         HAL_GPIO_WritePin(MTR_BRAKE_LEFT_PORT,  MTR_BRAKE_LEFT_PIN,  GPIO_PIN_RESET);
     } else {
         __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
@@ -247,8 +250,9 @@ void MTR_EmergencyStop(void)
      * Aucun appel HAL bloquant.
      */
 
-    /* Coupe PWM — accès direct registre (safe depuis ISR) */
-    MTR_PWM_LPTIM_LEFT.Instance->CMP = 0U;
+    /* Coupe PWM — accès direct registre (safe depuis ISR).
+     * LPTIM1: CMP = ARR → duty≈0%. TIM16: CMP = 0 → duty = 0%. */
+    MTR_PWM_LPTIM_LEFT.Instance->CMP = MTR_PWM_PERIOD - 1U;
     __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
 
     /* Active le frein sur les deux moteurs */

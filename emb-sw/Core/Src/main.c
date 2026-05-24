@@ -162,7 +162,7 @@ static void MX_GPIO_Init(void)
 
     /* Initial output state: DIR=LOW, BRAKE=LOW (coast) */
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12 | GPIO_PIN_13, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3,                GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4,                GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2,                GPIO_PIN_RESET);
 
     /* PD12=MOTOR_LEFT_DIR, PD13=MOTOR_LEFT_BRAKE */
@@ -172,8 +172,8 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-    /* PE3=MOTOR_RIGHT_DIR */
-    GPIO_InitStruct.Pin = GPIO_PIN_3;
+    /* PE4=MOTOR_RIGHT_DIR (PE3 = STMOD+ pin 11, non routé sur Arduino D4) */
+    GPIO_InitStruct.Pin = GPIO_PIN_4;
     HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
     /* PB2=MOTOR_RIGHT_BRAKE */
