@@ -190,7 +190,7 @@ MTR_Status_t MTR_Init(void)
                  MTR_VEL_KP_DEFAULT, MTR_VEL_KI_DEFAULT, MTR_VEL_KD_DEFAULT,
                  MTR_VEL_SAMPLE_TIME_S,
                  -1.0f, 1.0f);
-        PID_SetIntegralLimits(&mtr.vel_pid[i], -0.5f, 0.5f);
+        PID_SetIntegralLimits(&mtr.vel_pid[i], -0.9f, 0.9f);
     }
 
     /* Démarrage PWM gauche : LPTIM1 (PC1, 20 kHz, ARR=3199).

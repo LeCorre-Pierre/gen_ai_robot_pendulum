@@ -107,3 +107,64 @@ python -m serial.tools.miniterm COM4 115200
 cd app-pc-monitor
 py -3.11 main.py
 
+---
+
+## PID Tuning Tool (`app-pid-tuning/`)
+
+Velocity PID tuning tool that communicates with the STM32 over the ST-Link VCP.
+Three modes — live dashboard, automated optimisation, and AI-driven tuning via MCP.
+
+### Install
+
+```bash
+cd app-pid-tuning
+pip install -e ".[dev]"
+```
+
+### Live telemetry dashboard
+
+```bash
+python main.py monitor --port COM4
+```
+
+### Automated Kp/Ki optimisation (Nelder-Mead)
+
+```bash
+python main.py tune --port COM4 --motor both --target 50
+```
+
+Iterates step responses to minimise overshoot + settling time + steady-state error.
+Prints firmware `#define` values to paste into `motor_control.h` when done.
+
+### AI-driven tuning with Claude (MCP)
+
+```bash
+python main.py mcp --port COM4
+```
+
+Then add to Claude Code settings:
+
+```json
+{
+  "mcpServers": {
+    "robot-pid-tuner": {
+      "command": "python",
+      "args": ["main.py", "mcp", "--port", "COM4"],
+      "cwd": "D:/Projects/gen_ai_robot_pendulum/app-pid-tuning"
+    }
+  }
+}
+```
+
+Claude can then call 10 tools (`connect`, `set_gains`, `set_setpoint`,
+`record_step_response`, `run_optimization`, …) to tune the robot autonomously.
+
+Full documentation: [`app-pid-tuning/README.md`](app-pid-tuning/README.md)
+
+### Tests (no hardware required)
+
+```bash
+cd app-pid-tuning
+pytest tests/test_protocol.py -v   # 21 tests, protocol only
+```
+

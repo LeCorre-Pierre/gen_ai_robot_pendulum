@@ -96,8 +96,8 @@ extern "C" {
  * free-run ~230 RPM, valeur conservative 250 RPM pour marge. */
 #define MTR_MAX_RPM              250.0f
 #define MTR_VEL_SAMPLE_TIME_S    0.005f  /* 200 Hz */
-#define MTR_VEL_KP_DEFAULT       0.004f
-#define MTR_VEL_KI_DEFAULT       0.002f
+#define MTR_VEL_KP_DEFAULT       0.050f
+#define MTR_VEL_KI_DEFAULT       0.060f
 #define MTR_VEL_KD_DEFAULT       0.000f
 
 /* ============================================================================

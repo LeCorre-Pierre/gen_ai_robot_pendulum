@@ -15,7 +15,8 @@ uint16_t VcpProtocol_Crc16(const uint8_t *data, size_t len)
 int VcpProtocol_Frame(const VcpPacket_t *pkt, uint8_t *buf, size_t buf_size)
 {
     /* SOF1 SOF2 VER TYPE FLAGS SEQ LEN_L LEN_H PAYLOAD CRC_L CRC_H EOF */
-    size_t total = 9 + pkt->len + 1;
+    /* total = SOF(2) + HDR(6) + PAYLOAD(len) + CRC(2) + EOF(1) = 11 + len */
+    size_t total = 11U + pkt->len;
     if (buf_size < total) return -1;
 
     buf[0] = VCP_SOF1; buf[1] = VCP_SOF2; buf[2] = VCP_VER;

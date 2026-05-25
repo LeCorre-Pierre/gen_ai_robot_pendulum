@@ -15,5 +15,8 @@
       "Bash(source ~/.bashrc)",
       "Bash(mrebuild)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "robot-pid-tuner"
+  ]
 }

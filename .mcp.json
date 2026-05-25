@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "robot-pid-tuner": {
+      "command": "C:\\Users\\Pierre\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+      "args": ["main.py", "mcp"],
+      "cwd": "D:\\Projects\\gen_ai_robot_pendulum\\app-pid-tuning"
+    }
+  }
+}
