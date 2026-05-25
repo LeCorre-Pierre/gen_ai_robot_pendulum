@@ -7,6 +7,7 @@
  */
 
 #include "motor_control.h"
+#include "pid_controller.h"
 #include <stddef.h>
 
 /* ============================================================================
@@ -53,6 +54,12 @@ typedef struct
     /* Calcul de vitesse */
     int32_t  enc_vel_ref[2];    /*!< Compteur au dernier appel GetVel */
     uint32_t enc_vel_tick[2];   /*!< HAL_GetTick() au dernier GetVel  */
+
+    /* PID de vitesse */
+    MTR_ControlMode_t control_mode[2];    /*!< DIRECT ou VELOCITY par moteur  */
+    float             vel_setpoint_rpm[2];/*!< Consigne RPM (mode VELOCITY)   */
+    float             vel_rpm_cached[2]; /*!< Dernier RPM calculé (lecture UI)*/
+    PID_Controller_t  vel_pid[2];         /*!< Instances PID gauche / droite  */
 } MTR_Context_t;
 
 static MTR_Context_t mtr; /* Instance unique du contexte */
@@ -75,6 +82,9 @@ static void MTR_AccumulateEncoder(MTR_Id_t motor)
 
     uint16_t curr  = (uint16_t)__HAL_TIM_GET_COUNTER(htim);
     int16_t  delta = (int16_t)(curr - mtr.enc_prev_raw[motor]);
+
+    /* LEFT encoder is physically wired in reverse — invert its sign */
+    if (motor == MTR_LEFT) { delta = -delta; }
 
     mtr.enc_accum[motor]   += (int32_t)delta;
     mtr.enc_prev_raw[motor] = curr;
@@ -166,12 +176,21 @@ MTR_Status_t MTR_Init(void)
 
     for (int i = 0; i < 2; i++)
     {
-        mtr.deadband[i]        = MTR_DEFAULT_DEADBAND;
-        mtr.current_limit_A[i] = MTR_DEFAULT_CURRENT_LIMIT_A;
-        mtr.enc_accum[i]       = 0;
-        mtr.enc_prev_raw[i]    = 0U;
-        mtr.enc_vel_ref[i]     = 0;
-        mtr.enc_vel_tick[i]    = 0U;
+        mtr.deadband[i]           = MTR_DEFAULT_DEADBAND;
+        mtr.current_limit_A[i]    = MTR_DEFAULT_CURRENT_LIMIT_A;
+        mtr.enc_accum[i]          = 0;
+        mtr.enc_prev_raw[i]       = 0U;
+        mtr.enc_vel_ref[i]        = 0;
+        mtr.enc_vel_tick[i]       = 0U;
+        mtr.control_mode[i]       = MTR_MODE_DIRECT;
+        mtr.vel_setpoint_rpm[i]   = 0.0f;
+        mtr.vel_rpm_cached[i]     = 0.0f;
+
+        PID_Init(&mtr.vel_pid[i],
+                 MTR_VEL_KP_DEFAULT, MTR_VEL_KI_DEFAULT, MTR_VEL_KD_DEFAULT,
+                 MTR_VEL_SAMPLE_TIME_S,
+                 -1.0f, 1.0f);
+        PID_SetIntegralLimits(&mtr.vel_pid[i], -0.5f, 0.5f);
     }
 
     /* Démarrage PWM gauche : LPTIM1 (PC1, 20 kHz, ARR=3199).
@@ -207,7 +226,11 @@ MTR_Status_t MTR_SetSpeed(MTR_Id_t motor, MTR_Speed_t speed)
     if (speed >  1.0f) { speed =  1.0f; }
     if (speed < -1.0f) { speed = -1.0f; }
 
-    MTR_ApplyPWM(motor, speed);
+    if (mtr.control_mode[motor] == MTR_MODE_VELOCITY) {
+        mtr.vel_setpoint_rpm[motor] = speed * MTR_MAX_RPM;
+    } else {
+        MTR_ApplyPWM(motor, speed);
+    }
     return MTR_OK;
 }
 
@@ -216,9 +239,14 @@ MTR_Status_t MTR_Brake(MTR_Id_t motor)
     if (!mtr.initialized)  { return MTR_ERR_NOT_INIT; }
     if (motor > MTR_RIGHT) { return MTR_ERR_INVALID_PARAM; }
 
+    /* Repasse en DIRECT pour éviter que le PID ne se batte contre le frein */
+    mtr.control_mode[motor]     = MTR_MODE_DIRECT;
+    mtr.vel_setpoint_rpm[motor] = 0.0f;
+    PID_Reset(&mtr.vel_pid[motor]);
+
     /* PWM → duty 0%, BRAKE = HIGH → court-circuit induit moteur */
     if (motor == MTR_LEFT) {
-        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U); /* CMP=ARR → duty≈0% */
+        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U);
         HAL_GPIO_WritePin(MTR_BRAKE_LEFT_PORT,  MTR_BRAKE_LEFT_PIN,  GPIO_PIN_SET);
     } else {
         __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
@@ -232,9 +260,14 @@ MTR_Status_t MTR_Coast(MTR_Id_t motor)
     if (!mtr.initialized)  { return MTR_ERR_NOT_INIT; }
     if (motor > MTR_RIGHT) { return MTR_ERR_INVALID_PARAM; }
 
+    /* Repasse en DIRECT pour éviter que le PID ne continue de pousser */
+    mtr.control_mode[motor]     = MTR_MODE_DIRECT;
+    mtr.vel_setpoint_rpm[motor] = 0.0f;
+    PID_Reset(&mtr.vel_pid[motor]);
+
     /* PWM → duty 0%, BRAKE = LOW → roue libre */
     if (motor == MTR_LEFT) {
-        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U); /* CMP=ARR → duty≈0% */
+        __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U);
         HAL_GPIO_WritePin(MTR_BRAKE_LEFT_PORT,  MTR_BRAKE_LEFT_PIN,  GPIO_PIN_RESET);
     } else {
         __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
@@ -410,13 +443,17 @@ MTR_Status_t MTR_SetDifferential(MTR_Speed_t speed_left, MTR_Speed_t speed_right
     if (speed_right >  1.0f) { speed_right =  1.0f; }
     if (speed_right < -1.0f) { speed_right = -1.0f; }
 
-    /*
-     * Application atomique : les deux timers partagent TIM1, les deux
-     * __HAL_TIM_SET_COMPARE sont des accès registre consécutifs sans
-     * préemption entre eux à l'échelle d'une période PWM (1 ms).
-     */
-    MTR_ApplyPWM(MTR_LEFT,  speed_left);
-    MTR_ApplyPWM(MTR_RIGHT, speed_right);
+    if (mtr.control_mode[MTR_LEFT] == MTR_MODE_VELOCITY) {
+        mtr.vel_setpoint_rpm[MTR_LEFT]  = speed_left  * MTR_MAX_RPM;
+    } else {
+        MTR_ApplyPWM(MTR_LEFT,  speed_left);
+    }
+
+    if (mtr.control_mode[MTR_RIGHT] == MTR_MODE_VELOCITY) {
+        mtr.vel_setpoint_rpm[MTR_RIGHT] = speed_right * MTR_MAX_RPM;
+    } else {
+        MTR_ApplyPWM(MTR_RIGHT, speed_right);
+    }
 
     return MTR_OK;
 }
@@ -428,4 +465,73 @@ MTR_Status_t MTR_SetDeadband(MTR_Id_t motor, float deadband_frac)
 
     mtr.deadband[motor] = deadband_frac;
     return MTR_OK;
+}
+
+/* ============================================================================
+ * Groupe 6 — PID de vitesse (boucle fermée encodeur)
+ * ============================================================================ */
+
+MTR_Status_t MTR_SetControlMode(MTR_Id_t motor, MTR_ControlMode_t mode)
+{
+    if (motor > MTR_RIGHT) { return MTR_ERR_INVALID_PARAM; }
+    if (mtr.control_mode[motor] == mode) { return MTR_OK; }
+
+    mtr.control_mode[motor] = mode;
+
+    if (mode == MTR_MODE_DIRECT) {
+        /* Arrêt immédiat — le PID ne doit plus piloter le PWM */
+        PID_Reset(&mtr.vel_pid[motor]);
+        mtr.vel_setpoint_rpm[motor] = 0.0f;
+        MTR_Coast(motor);
+    } else {
+        /* Initialise la fenêtre de vitesse avant le premier PID_Update */
+        MTR_AccumulateEncoder(motor);
+        mtr.enc_vel_ref[motor]  = mtr.enc_accum[motor];
+        mtr.enc_vel_tick[motor] = HAL_GetTick();
+        PID_Reset(&mtr.vel_pid[motor]);
+        mtr.vel_setpoint_rpm[motor] = 0.0f;
+    }
+    return MTR_OK;
+}
+
+void MTR_VelocityUpdate(void)
+{
+    if (!mtr.initialized || mtr.emergency_active) { return; }
+
+    for (int m = 0; m < 2; m++) {
+        if (mtr.control_mode[m] != MTR_MODE_VELOCITY) { continue; }
+
+        float rpm = MTR_GetVelocityRPM((MTR_Id_t)m);
+        mtr.vel_rpm_cached[m] = rpm;
+
+        float pwm = PID_Update(&mtr.vel_pid[m], mtr.vel_setpoint_rpm[m], rpm);
+        MTR_ApplyPWM((MTR_Id_t)m, pwm);
+    }
+}
+
+MTR_Status_t MTR_SetVelocityGains(MTR_Id_t motor, float kp, float ki, float kd)
+{
+    if (motor > MTR_RIGHT) { return MTR_ERR_INVALID_PARAM; }
+    return (PID_SetTunings(&mtr.vel_pid[motor], kp, ki, kd) == PID_OK)
+           ? MTR_OK : MTR_ERR_INVALID_PARAM;
+}
+
+float MTR_GetCachedVelocityRPM(MTR_Id_t motor)
+{
+    if (motor > MTR_RIGHT) { return 0.0f; }
+    return mtr.vel_rpm_cached[motor];
+}
+
+void MTR_GetVelocityGains(MTR_Id_t motor, float *kp, float *ki, float *kd)
+{
+    if (motor > MTR_RIGHT) { return; }
+    if (kp) { *kp = mtr.vel_pid[motor].kp; }
+    if (ki) { *ki = mtr.vel_pid[motor].ki; }
+    if (kd) { *kd = mtr.vel_pid[motor].kd; }
+}
+
+float MTR_GetLastPwmOutput(MTR_Id_t motor)
+{
+    if (motor > MTR_RIGHT) { return 0.0f; }
+    return mtr.vel_pid[motor].last_output;
 }

@@ -91,6 +91,15 @@ extern "C" {
 #define MTR_DEFAULT_CURRENT_LIMIT_A 1.8f   /* A par canal, seuil sécu   */
 #define MTR_DEFAULT_TILT_CUTOFF_DEG 45.0f  /* ° — coupure si |tilt| > X */
 
+/* --- PID de vitesse ------------------------------------------------------- */
+/* RPM pleine échelle sortie réducteur à 12 V avec chute L298 (~4 V) :
+ * free-run ~230 RPM, valeur conservative 250 RPM pour marge. */
+#define MTR_MAX_RPM              250.0f
+#define MTR_VEL_SAMPLE_TIME_S    0.005f  /* 200 Hz */
+#define MTR_VEL_KP_DEFAULT       0.004f
+#define MTR_VEL_KI_DEFAULT       0.002f
+#define MTR_VEL_KD_DEFAULT       0.000f
+
 /* ============================================================================
  * Types
  * ============================================================================ */
@@ -111,6 +120,13 @@ typedef enum
     MTR_LEFT  = 0,  /*!< Moteur gauche — TIM1_CH1 / PD14 */
     MTR_RIGHT = 1,  /*!< Moteur droit  — TIM1_CH2 / PD15 */
 } MTR_Id_t;
+
+/** Mode de contrôle par moteur */
+typedef enum
+{
+    MTR_MODE_DIRECT   = 0,  /*!< PWM direct [-1..+1] — debug/calibration */
+    MTR_MODE_VELOCITY = 1,  /*!< Boucle fermée PID vitesse — utilisation normale */
+} MTR_ControlMode_t;
 
 /** Consigne vitesse normalisée.
  *  -1.0 = plein arrière | 0.0 = arrêt | +1.0 = plein avant.
@@ -267,6 +283,55 @@ MTR_Status_t MTR_SetDifferential(MTR_Speed_t speed_left, MTR_Speed_t speed_right
  * @retval MTR_OK ou MTR_ERR_INVALID_PARAM
  */
 MTR_Status_t MTR_SetDeadband(MTR_Id_t motor, float deadband_frac);
+
+/* --- Groupe 6 : PID de vitesse (boucle fermée encodeur) ------------------- */
+
+/**
+ * @brief  Bascule le mode de contrôle d'un moteur.
+ *         DIRECT  → SetSpeed() applique le PWM immédiatement.
+ *         VELOCITY → SetSpeed() fixe la consigne RPM ; MTR_VelocityUpdate()
+ *                    doit être appelé à 200 Hz pour fermer la boucle.
+ *         Coast() et Brake() repasse toujours en DIRECT.
+ * @param  motor  MTR_LEFT ou MTR_RIGHT
+ * @param  mode   MTR_MODE_DIRECT ou MTR_MODE_VELOCITY
+ */
+MTR_Status_t MTR_SetControlMode(MTR_Id_t motor, MTR_ControlMode_t mode);
+
+/**
+ * @brief  Met à jour le PID de vitesse pour les deux moteurs en mode VELOCITY.
+ *         À appeler exactement à 200 Hz depuis la tâche de contrôle.
+ *         Sans effet en mode DIRECT ou si emergency_active.
+ */
+void MTR_VelocityUpdate(void);
+
+/**
+ * @brief  Modifie les gains PID de vitesse à chaud (sans réinitialiser l'intégrateur).
+ * @param  motor  MTR_LEFT ou MTR_RIGHT
+ * @param  kp, ki, kd  Nouveaux gains
+ */
+MTR_Status_t MTR_SetVelocityGains(MTR_Id_t motor, float kp, float ki, float kd);
+
+/**
+ * @brief  Retourne le dernier RPM calculé par MTR_VelocityUpdate() sans relire
+ *         l'encodeur. Valeur nulle si le moteur est en mode DIRECT ou si
+ *         VelocityUpdate n'a pas encore été appelé.
+ * @note   À utiliser par les tâches d'affichage/télémétrie pour éviter tout
+ *         conflit avec le timestamp interne de MTR_GetVelocityRPM().
+ */
+float MTR_GetCachedVelocityRPM(MTR_Id_t motor);
+
+/**
+ * @brief  Lit les gains PID actifs sur un moteur.
+ * @param  motor        MTR_LEFT ou MTR_RIGHT
+ * @param  kp, ki, kd   Pointeurs de sortie (ignorés si NULL)
+ */
+void MTR_GetVelocityGains(MTR_Id_t motor, float *kp, float *ki, float *kd);
+
+/**
+ * @brief  Retourne la dernière sortie PID (commande normalisée [-1..+1])
+ *         calculée par MTR_VelocityUpdate(). Utile pour la télémétrie.
+ */
+float MTR_GetLastPwmOutput(MTR_Id_t motor);
 
 #ifdef __cplusplus
 }

@@ -248,7 +248,35 @@ static void MX_LPTIM1_Init(void)
 }
 
 static void MX_I2C3_Init(void)       { /* TODO: IMU ISM330DHCX */ }
-static void MX_USART1_UART_Init(void){ /* TODO: VCP 115200 */ }
+
+static void MX_USART1_UART_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    __HAL_RCC_USART1_CLK_ENABLE();
+
+    /* PB6 = USART1_TX, PB7 = USART1_RX (ST-Link VCP) */
+    GPIO_InitStruct.Pin       = GPIO_PIN_6 | GPIO_PIN_7;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    huart1.Instance          = USART1;
+    huart1.Init.BaudRate     = 115200;
+    huart1.Init.WordLength   = UART_WORDLENGTH_8B;
+    huart1.Init.StopBits     = UART_STOPBITS_1;
+    huart1.Init.Parity       = UART_PARITY_NONE;
+    huart1.Init.Mode         = UART_MODE_TX_RX;
+    huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+    huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&huart1) != HAL_OK) { Error_Handler(); }
+
+    /* Priority 5 = safe to call from FreeRTOS ISR API (configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY) */
+    HAL_NVIC_SetPriority(USART1_IRQn, 5U, 0U);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
+}
 
 static void MX_ADC1_Init(void)
 {

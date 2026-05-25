@@ -15,6 +15,7 @@
 #include <math.h>
 #include <stdio.h>
 #include "motor_control.h"
+#include "task_comms.h"
 
 #define DISPLAY_TASK_STACK_SIZE  384U
 #define DISPLAY_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
@@ -52,7 +53,9 @@ static const float k_motor_presets[MOTOR_PRESET_COUNT] = {
 #define MBAR_H    9U
 
 typedef enum {
-    SCREEN_ENCODER = 0,
+    SCREEN_VCP_TUNER = 0,
+    SCREEN_TOF_MOTOR,
+    SCREEN_ENCODER,
     SCREEN_TOF,
     SCREEN_ENV,
     SCREEN_IMU,
@@ -63,11 +66,18 @@ typedef enum {
     SCREEN_COUNT
 } Screen_t;
 
-static Screen_t s_screen        = SCREEN_MOTOR_L;
+static Screen_t s_screen        = SCREEN_VCP_TUNER;
 static uint8_t  s_btn2_prev     = 1U;
 static uint8_t  s_btn1_prev     = 1U;
 static uint8_t  s_motor_preset_l = 0U;
 static uint8_t  s_motor_preset_r = 0U;
+
+/* ToF Motor screen state */
+static uint8_t  s_tof_locked     = 0U;
+static float    s_tof_speed_lock = 0.0f;
+static int8_t   s_tof_direction  = 1;
+static uint8_t  s_b1_hold        = 0U;
+static uint8_t  s_b1_long_fired  = 0U;
 
 /* Env sensor: session min/max */
 static float s_temp_min =  999.0f;
@@ -85,6 +95,7 @@ static uint16_t s_graph_head  = 0;   /* next write slot                  */
 static uint16_t s_graph_count = 0;   /* samples stored so far (≤ 300)    */
 
 static void DisplayTask(void *pvParameters);
+static void Screen_DrawVcpTuner(void);
 static void Screen_DrawEncoder(void);
 static void Screen_DrawTof(int16_t dist_mm);
 static void Screen_DrawEnv(float temp);
@@ -92,6 +103,8 @@ static void Screen_DrawImu(MOTION_SENSOR_Axes_t accel, uint8_t calibrated, float
 static void Screen_DrawGyro(MOTION_SENSOR_Axes_t gyro);
 static void Screen_DrawSystem(void);
 static void Screen_DrawMotorSingle(const char *title, float speed, float current_A);
+static void Screen_DrawTofMotor(int16_t dist_mm, float speed, float current_A,
+                                uint8_t locked, uint8_t hold_ticks);
 
 
 void StartDisplayTask(void)
@@ -100,6 +113,47 @@ void StartDisplayTask(void)
                 DISPLAY_TASK_PRIORITY, NULL);
 }
 
+
+static void Screen_DrawVcpTuner(void)
+{
+    char buf[22];
+    BSP_LCD_Clear(0, SSD1315_COLOR_BLACK);
+    UTIL_LCD_SetFont(&Font12);
+
+    /* Line 1 y=2 : stream status + shared setpoint */
+    uint8_t  streaming = VCP_IsStreamActive();
+    int16_t  sp        = VCP_GetSetpointRpm();
+    const char *sym    = streaming ? ">>" : "==";
+    snprintf(buf, sizeof(buf), "VCP %s Sp:%+5d", sym, (int)sp);
+    UTIL_LCD_DisplayStringAt(2, 2, (uint8_t *)buf, LEFT_MODE);
+
+    /* Line 2 y=14 : Kp / Ki of left motor (reference) */
+    float kp = 0.0f, ki = 0.0f, kd = 0.0f;
+    MTR_GetVelocityGains(MTR_LEFT, &kp, &ki, &kd);
+    snprintf(buf, sizeof(buf), "Kp:%5.3f Ki:%5.3f", (double)kp, (double)ki);
+    UTIL_LCD_DisplayStringAt(2, 14, (uint8_t *)buf, LEFT_MODE);
+
+    /* Line 3 y=27 : left motor Pv + error */
+    int pv_l = (int)MTR_GetCachedVelocityRPM(MTR_LEFT);
+    int er_l = (int)sp - pv_l;
+    snprintf(buf, sizeof(buf), "L Pv:%+4d Er:%+4d", pv_l, er_l);
+    UTIL_LCD_DisplayStringAt(2, 27, (uint8_t *)buf, LEFT_MODE);
+
+    /* Line 4 y=40 : right motor Pv + error */
+    int pv_r = (int)MTR_GetCachedVelocityRPM(MTR_RIGHT);
+    int er_r = (int)sp - pv_r;
+    snprintf(buf, sizeof(buf), "R Pv:%+4d Er:%+4d", pv_r, er_r);
+    UTIL_LCD_DisplayStringAt(2, 40, (uint8_t *)buf, LEFT_MODE);
+
+    /* Line 5 y=52 : [OK] flash 500 ms after last cmd, B1=stream toggle */
+    uint32_t age_ms = HAL_GetTick() - VCP_GetLastCmdTick();
+    const char *ok  = (VCP_GetLastCmdTick() > 0U && age_ms < 500U) ? "[OK]" : "    ";
+    snprintf(buf, sizeof(buf), "%sB1:%s B2:nxt",
+             ok, streaming ? "stop" : "strm");
+    UTIL_LCD_DisplayStringAt(2, 52, (uint8_t *)buf, LEFT_MODE);
+
+    BSP_LCD_Refresh(0);
+}
 
 static void Screen_DrawEncoder(void)
 {
@@ -332,6 +386,84 @@ static void Screen_DrawMotorSingle(const char *title, float speed, float current
     BSP_LCD_Refresh(0);
 }
 
+/* Maps ToF distance to a proximity speed magnitude [0.0 .. 1.0].
+ * < 50 mm → 1.0 (clamp), 50–500 mm → linear, > 500 mm → 0.0. */
+static float Tof_ToSpeed(int16_t dist_mm)
+{
+    if (dist_mm < 0)    return 0.0f;
+    if (dist_mm < 50)   return 1.0f;
+    if (dist_mm > 500)  return 0.0f;
+    return 1.0f - (float)(dist_mm - 50) / 450.0f;
+}
+
+static void Screen_DrawTofMotor(int16_t dist_mm, float speed, float current_A,
+                                uint8_t locked, uint8_t hold_ticks)
+{
+    char buf[22];
+
+    BSP_LCD_Clear(0, SSD1315_COLOR_BLACK);
+    UTIL_LCD_SetFont(&Font12);
+
+    /* Line 1 y=2 : distance ToF + consigne RPM commune */
+    int sp_rpm = (int)(speed * (float)MTR_MAX_RPM);
+    if (dist_mm < 0 || dist_mm > 9999) {
+        snprintf(buf, sizeof(buf), "ToF ---mm Sp:%+4d", sp_rpm);
+    } else {
+        uint16_t d = (dist_mm > 999) ? 999U : (uint16_t)dist_mm;
+        snprintf(buf, sizeof(buf), "ToF %3umm Sp:%+4d", (unsigned)d, sp_rpm);
+    }
+    UTIL_LCD_DisplayStringAt(2, 2, (uint8_t *)buf, LEFT_MODE);
+
+    /* Line 2 y=14 : moteur gauche — Pv et erreur */
+    int pv_l = (int)MTR_GetCachedVelocityRPM(MTR_LEFT);
+    int er_l  = sp_rpm - pv_l;
+    snprintf(buf, sizeof(buf), "L Pv:%+4d Er:%+4d", pv_l, er_l);
+    UTIL_LCD_DisplayStringAt(2, 14, (uint8_t *)buf, LEFT_MODE);
+
+    /* Line 3 y=27 : moteur droit — Pv et erreur */
+    int pv_r = (int)MTR_GetCachedVelocityRPM(MTR_RIGHT);
+    int er_r  = sp_rpm - pv_r;
+    snprintf(buf, sizeof(buf), "R Pv:%+4d Er:%+4d", pv_r, er_r);
+    UTIL_LCD_DisplayStringAt(2, 27, (uint8_t *)buf, LEFT_MODE);
+
+    /* Line 4 y=40 : bargraph de la commande (centre=0, FWD→droite, BWD→gauche) */
+    float abs_speed = fabsf(speed);
+    UTIL_LCD_DrawRect(0U, 40U, 128U, 9U, SSD1315_COLOR_WHITE);
+    UTIL_LCD_DrawVLine(63U, 41U, 7U, SSD1315_COLOR_WHITE);
+    if (abs_speed > 0.01f) {
+        uint32_t fill = (uint32_t)(abs_speed * 62.0f);
+        if (fill > 62U) fill = 62U;
+        if (speed > 0.0f) {
+            UTIL_LCD_FillRect(64U, 41U, fill, 7U, SSD1315_COLOR_WHITE);
+        } else {
+            UTIL_LCD_FillRect(63U - fill, 41U, fill, 7U, SSD1315_COLOR_WHITE);
+        }
+    }
+
+    /* Line 5 y=52 : courant + indicateur LIVE/LOCK + action B1
+     * >> = LIVE (données qui coulent)   == = LOCK (figé) */
+    const char *mode_sym = locked ? "==" : ">>";
+    if (hold_ticks > 0U && hold_ticks < 5U) {
+        char prog[6];
+        for (uint8_t i = 0U; i < 5U; i++) {
+            prog[i] = (i < hold_ticks) ? '#' : '-';
+        }
+        prog[5] = '\0';
+        snprintf(buf, sizeof(buf), "%4.2fA %s[%s]",
+                 (double)current_A, mode_sym, prog);
+    } else if (hold_ticks >= 5U) {
+        snprintf(buf, sizeof(buf), "%4.2fA %s[DIR!]",
+                 (double)current_A, mode_sym);
+    } else {
+        snprintf(buf, sizeof(buf), "%4.2fA %sB1:%s",
+                 (double)current_A, mode_sym,
+                 locked ? "unlk" : "lock");
+    }
+    UTIL_LCD_DisplayStringAt(2, 52, (uint8_t *)buf, LEFT_MODE);
+
+    BSP_LCD_Refresh(0);
+}
+
 static void DisplayTask(void *pvParameters)
 {
     (void)pvParameters;
@@ -360,10 +492,41 @@ static void DisplayTask(void *pvParameters)
             } else if (last_screen == SCREEN_MOTOR_R) {
                 MTR_Coast(MTR_RIGHT);
                 s_motor_preset_r = 0U;
+            } else if (last_screen == SCREEN_TOF_MOTOR) {
+                MTR_Coast(MTR_LEFT);
+                MTR_Coast(MTR_RIGHT);
+                s_tof_locked    = 0U;
+                s_tof_direction = 1;
+                s_b1_hold       = 0U;
+                s_b1_long_fired = 0U;
+            } else if (last_screen == SCREEN_VCP_TUNER) {
+                VCP_SetStreamActive(0U);
+                MTR_Coast(MTR_LEFT);
+                MTR_Coast(MTR_RIGHT);
             }
         }
 
         switch (s_screen) {
+            case SCREEN_VCP_TUNER: {
+                uint8_t b1_now = BSP_PB_GetState(BUTTON_USER1);
+
+                /* On entry: enable velocity mode on both motors */
+                if (s_screen != last_screen) {
+                    s_btn1_prev = (b1_now == GPIO_PIN_RESET) ? 0U : 1U;
+                    MTR_SetControlMode(MTR_LEFT,  MTR_MODE_VELOCITY);
+                    MTR_SetControlMode(MTR_RIGHT, MTR_MODE_VELOCITY);
+                }
+
+                /* B1 short press: toggle streaming */
+                if (b1_now != GPIO_PIN_RESET && s_btn1_prev == 0U) {
+                    VCP_SetStreamActive(VCP_IsStreamActive() ? 0U : 1U);
+                }
+                s_btn1_prev = (b1_now == GPIO_PIN_RESET) ? 0U : 1U;
+
+                Screen_DrawVcpTuner();
+                break;
+            }
+
             case SCREEN_ENCODER: {
                 if (BSP_PB_GetState(BUTTON_USER1) == GPIO_PIN_RESET) {
                     Encoder_Reset(&g_enc_right);
@@ -496,6 +659,62 @@ static void DisplayTask(void *pvParameters)
                 Screen_DrawMotorSingle("Motor Right",
                                        k_motor_presets[s_motor_preset_r],
                                        MTR_GetCurrentA(MTR_RIGHT));
+                break;
+            }
+
+            case SCREEN_TOF_MOTOR: {
+                uint8_t b1_now = BSP_PB_GetState(BUTTON_USER1);
+
+                /* Reset state on screen entry */
+                if (s_screen != last_screen) {
+                    s_tof_locked    = 0U;
+                    s_tof_direction = 1;
+                    s_b1_hold       = 0U;
+                    s_b1_long_fired = 0U;
+                    s_btn1_prev = (b1_now == GPIO_PIN_RESET) ? 0U : 1U;
+                    MTR_SetControlMode(MTR_LEFT,  MTR_MODE_VELOCITY);
+                    MTR_SetControlMode(MTR_RIGHT, MTR_MODE_VELOCITY);
+                }
+
+                /* Long / short press detection */
+                if (b1_now == GPIO_PIN_RESET) {
+                    if (s_b1_hold < 255U) {
+                        s_b1_hold++;
+                    }
+                    /* Long press at 500 ms (5 ticks × 100 ms): flip direction */
+                    if (s_b1_hold == 5U && !s_b1_long_fired) {
+                        s_tof_direction = -s_tof_direction;
+                        if (s_tof_locked) {
+                            s_tof_speed_lock = -s_tof_speed_lock;
+                        }
+                        s_b1_long_fired = 1U;
+                    }
+                } else {
+                    /* Released — short press toggles lock */
+                    if (s_b1_hold > 0U && s_b1_hold < 5U) {
+                        if (s_tof_locked) {
+                            s_tof_locked = 0U;
+                        } else {
+                            int16_t d        = Tof_GetDistanceMm();
+                            s_tof_speed_lock = (float)s_tof_direction * Tof_ToSpeed(d);
+                            s_tof_locked     = 1U;
+                        }
+                    }
+                    s_b1_hold       = 0U;
+                    s_b1_long_fired = 0U;
+                }
+                s_btn1_prev = (b1_now == GPIO_PIN_RESET) ? 0U : 1U;
+
+                /* Compute speed from ToF or frozen lock */
+                int16_t dist = Tof_GetDistanceMm();
+                float   speed_tof = s_tof_locked
+                                  ? s_tof_speed_lock
+                                  : (float)s_tof_direction * Tof_ToSpeed(dist);
+
+                MTR_SetDifferential(speed_tof, speed_tof);
+
+                float i_avg = (MTR_GetCurrentA(MTR_LEFT) + MTR_GetCurrentA(MTR_RIGHT)) * 0.5f;
+                Screen_DrawTofMotor(dist, speed_tof, i_avg, s_tof_locked, s_b1_hold);
                 break;
             }
 
