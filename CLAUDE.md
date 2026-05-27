@@ -185,6 +185,24 @@ Safety cutoffs: |tilt| > 45°, BLE timeout 200 ms, watchdog 50 ms, 3 consecutive
 
 Motor resolution: 29:1 gearbox × 64 CPR encoder = **1856 ticks/revolution effective**.
 
+## IMU Axis Mapping (ISM330DHCX — confirmed 2026-05-26)
+
+Identified via `tools/imu_viewer.py` with the robot physically moved. Do not change these without re-running the identification procedure.
+
+| Rôle physique | Axe BSP | Variable firmware | Valeur upright |
+|---|---|---|---|
+| Gravité (vertical) | **Ay** | `imu.accel_y_g` | ≈ +1.0 g |
+| Tangage accel | **Az** | `imu.accel_z_g` | ≈ 0.0 g |
+| Tangage gyro (pitch rate) | **Gx** | `imu.gyro_x_dps` | ≈ 0 °/s |
+| Lacet gyro (yaw rate) | **Gy** | `imu.gyro_y_dps` | ≈ 0 °/s |
+
+`task_control.c` calls:
+```c
+// Az et Gx négés : convention forward → pitch positif (confirmé 2026-05-26)
+AngleEstimator_Update(&ae, -imu.accel_z_g, imu.accel_y_g, -imu.gyro_x_dps, dt)
+CBC_Update(&cbc, ..., pitch_deg, ..., imu.gyro_y_dps)
+```
+
 ---
 
 ## Key Documents

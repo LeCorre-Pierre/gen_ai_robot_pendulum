@@ -6,6 +6,7 @@
 #include "task_display.h"
 #include "tof.h"
 #include "env_sensor.h"
+#include "imu.h"
 #include "stm32wb5mm_dk_motion_sensors.h"
 #include "motor_control.h"
 
@@ -64,6 +65,7 @@ int main(void)
     Tof_Init();
     EnvSensor_Init();
     BSP_MOTION_SENSOR_Init(MOTION_SENSOR_ISM330DHCX_0, MOTION_ACCELERO | MOTION_GYRO);
+    IMU_Init();
 
     // Initialize the RTOS kernel
     osKernelInitialize();

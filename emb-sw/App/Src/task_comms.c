@@ -10,6 +10,7 @@
  */
 
 #include "task_comms.h"
+#include "task_control.h"
 #include "vcp_protocol.h"
 #include "motor_control.h"
 #include "FreeRTOS.h"
@@ -49,6 +50,7 @@ static void Comms_ProcessRx(void);
 static void Comms_Dispatch(const VcpPacket_t *pkt);
 static void Comms_SendTelemetry(void);
 static void Comms_SendAck(uint8_t cmd_type, uint8_t status);
+static void Comms_SendImuTelemetry(void);
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
@@ -210,6 +212,15 @@ static void Comms_Dispatch(const VcpPacket_t *pkt)
         break;
     }
 
+    case VCP_TYPE_CMD_SET_BALANCE_GAINS: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdSetBalanceGains_t)) { break; }
+        VcpCmdSetBalanceGains_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        Task_control_SetBalanceGains(cmd.loop_id, cmd.kp, cmd.ki, cmd.kd);
+        Comms_SendAck(VCP_TYPE_CMD_SET_BALANCE_GAINS, 0U);
+        break;
+    }
+
     case VCP_TYPE_CMD_MOTOR_CTRL: {
         if (pkt->len < (uint16_t)sizeof(VcpCmdMotorCtrl_t)) { break; }
         VcpCmdMotorCtrl_t cmd;
@@ -272,6 +283,38 @@ static void Comms_SendTelemetry(void)
     }
 }
 
+static void Comms_SendImuTelemetry(void)
+{
+    extern UART_HandleTypeDef huart1;
+
+    ControlState_t cs;
+    Task_control_GetState(&cs);
+
+    VcpTelImu_t tel;
+    tel.timestamp_ms = HAL_GetTick();
+    tel.accel_x_mg   = (int16_t)(cs.accel_x_g  * 1000.0f);
+    tel.accel_y_mg   = (int16_t)(cs.accel_y_g  * 1000.0f);
+    tel.accel_z_mg   = (int16_t)(cs.accel_z_g  * 1000.0f);
+    tel.gyro_x_x10   = (int16_t)(cs.gyro_x_dps * 10.0f);
+    tel.gyro_y_x10   = (int16_t)(cs.gyro_y_dps * 10.0f);
+    tel.gyro_z_x10   = (int16_t)(cs.gyro_z_dps * 10.0f);
+    tel.pitch_x100   = (int16_t)(cs.pitch_deg    * 100.0f);
+    tel.drive_x100   = (int16_t)(cs.drive_output * 100.0f);
+
+    uint8_t tx_buf[TX_BUF_SIZE];
+    VcpPacket_t pkt;
+    pkt.type    = VCP_TYPE_TELEMETRY_IMU;
+    pkt.flags   = 0U;
+    pkt.seq     = s_tx_seq++;
+    pkt.len     = (uint16_t)sizeof(VcpTelImu_t);
+    pkt.payload = (uint8_t *)&tel;
+
+    int n = VcpProtocol_Frame(&pkt, tx_buf, sizeof(tx_buf));
+    if (n > 0) {
+        HAL_UART_Transmit(&huart1, tx_buf, (uint16_t)n, 10U);
+    }
+}
+
 static void Comms_SendAck(uint8_t cmd_type, uint8_t status)
 {
     extern UART_HandleTypeDef huart1;
@@ -306,11 +349,12 @@ static void CommsTask(void *pvParameters)
         Comms_ProcessRx();
 
         if (s_stream_active) {
-            uint32_t now        = HAL_GetTick();
-            uint32_t interval   = 1000U / (uint32_t)s_stream_rate_hz;
+            uint32_t now      = HAL_GetTick();
+            uint32_t interval = 1000U / (uint32_t)s_stream_rate_hz;
             if ((now - last_tel_ms) >= interval) {
                 last_tel_ms = now;
                 Comms_SendTelemetry();
+                Comms_SendImuTelemetry();
             }
         }
 
