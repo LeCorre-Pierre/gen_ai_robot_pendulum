@@ -78,7 +78,7 @@ static void ControlTask(void *pvParameters)
         }
 
         /* 4. Cascade balance controller */
-        float vel_avg = (MTR_GetVelocityRPM(MTR_LEFT) + MTR_GetVelocityRPM(MTR_RIGHT)) * 0.5f;
+        float vel_avg = (MTR_GetCachedVelocityRPM(MTR_LEFT) + MTR_GetCachedVelocityRPM(MTR_RIGHT)) * 0.5f;
 
         CascadeBalanceOutput_t out = CBC_Update(&s_cbc,
                                                 0.0f,          /* target velocity = stand still */
@@ -124,8 +124,6 @@ void Task_control_Init(void)
     AngleEstimator_Init(&s_angle_est, COMPLEMENTARY_ALPHA);
     CBC_Init(&s_cbc, CONTROL_DT_S);
 
-    /* Balance controller commands velocity (fraction of MTR_MAX_RPM).
-     * Motor velocity PID closes the inner loop via MTR_VelocityUpdate(). */
     MTR_SetControlMode(MTR_LEFT,  MTR_MODE_VELOCITY);
     MTR_SetControlMode(MTR_RIGHT, MTR_MODE_VELOCITY);
 
