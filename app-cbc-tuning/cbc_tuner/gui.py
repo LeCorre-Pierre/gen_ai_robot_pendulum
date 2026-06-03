@@ -21,7 +21,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFrame, QGroupBox, QHBoxLayout, QLabel,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
-    QSplitter, QVBoxLayout, QWidget,
+    QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
 import numpy as np
@@ -30,6 +30,7 @@ import serial
 import serial.tools.list_ports
 
 from .mcp_server import StateServer, TunerState
+from .sweep_panel import SweepPanel
 
 pg.setConfigOptions(antialias=True, background="#1e1e1e", foreground="#cccccc")
 
@@ -551,7 +552,13 @@ class CbcTuner(QMainWindow):
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setHandleWidth(6)
         self._main_splitter.addWidget(self._build_left_panel())
-        self._main_splitter.addWidget(self._build_plots_panel())
+
+        self._right_tabs = QTabWidget()
+        self._right_tabs.addTab(self._build_plots_panel(), "Live")
+        self._sweep_panel = SweepPanel()
+        self._right_tabs.addTab(self._sweep_panel, "Sweep")
+        self._main_splitter.addWidget(self._right_tabs)
+
         self.setCentralWidget(self._main_splitter)
 
     def _build_left_panel(self) -> QWidget:
@@ -756,6 +763,8 @@ class CbcTuner(QMainWindow):
         s = self._state
         s.t.append(now)
         s.pitch.append(pitch)
+        s.pitch_rate.append(pitch_rate)
+        s.drive.append(drive_pct / 100.0)
 
         kp, ki, kd = self._state.kp, self._state.ki, self._state.kd
         error = -pitch  # setpoint = 0°
@@ -814,7 +823,7 @@ class CbcTuner(QMainWindow):
 
     def _clear(self):
         s = self._state
-        for d in (s.t, s.pitch, s.pid_p, s.pid_i, s.pid_d):
+        for d in (s.t, s.pitch, s.pitch_rate, s.drive, s.pid_p, s.pid_i, s.pid_d):
             d.clear()
         for c in (self._c_pitch, self._c_pid_p, self._c_pid_i, self._c_pid_d):
             c.setData([], [])

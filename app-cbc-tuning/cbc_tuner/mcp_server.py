@@ -26,11 +26,13 @@ _SNAPSHOT_MAX = 3000   # points max renvoyés par GET /state (≈150 s à 20 Hz)
 @dataclass
 class TunerState:
     """Données partagées entre le thread Qt et le serveur HTTP IPC."""
-    t:     deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
-    pitch: deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
-    pid_p: deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
-    pid_i: deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
-    pid_d: deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    t:          deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    pitch:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    pitch_rate: deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    drive:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    pid_p:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    pid_i:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    pid_d:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
     rpm_l: int   = 0
     rpm_r: int   = 0
     pwm_l: float = 0.0
@@ -76,17 +78,19 @@ class StateServer:
                 n  = len(state.t)
                 sl = slice(max(0, n - _SNAPSHOT_MAX), n)
                 data = {
-                    "connected": state.connected,
-                    "gains":     {"kp": state.kp, "ki": state.ki, "kd": state.kd},
-                    "rpm_l":     state.rpm_l,
-                    "rpm_r":     state.rpm_r,
-                    "pwm_l":     state.pwm_l,
-                    "pwm_r":     state.pwm_r,
-                    "t":         list(state.t)[sl],
-                    "pitch":     list(state.pitch)[sl],
-                    "pid_p":     list(state.pid_p)[sl],
-                    "pid_i":     list(state.pid_i)[sl],
-                    "pid_d":     list(state.pid_d)[sl],
+                    "connected":  state.connected,
+                    "gains":      {"kp": state.kp, "ki": state.ki, "kd": state.kd},
+                    "rpm_l":      state.rpm_l,
+                    "rpm_r":      state.rpm_r,
+                    "pwm_l":      state.pwm_l,
+                    "pwm_r":      state.pwm_r,
+                    "t":          list(state.t)[sl],
+                    "pitch":      list(state.pitch)[sl],
+                    "pitch_rate": list(state.pitch_rate)[sl],
+                    "drive":      list(state.drive)[sl],
+                    "pid_p":      list(state.pid_p)[sl],
+                    "pid_i":      list(state.pid_i)[sl],
+                    "pid_d":      list(state.pid_d)[sl],
                 }
                 self._send_json(json.dumps(data).encode())
 

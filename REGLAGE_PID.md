@@ -280,7 +280,231 @@ Durée d'observation : 1,5 s par essai.
 
 ---
 
-## 8. Gains de départ recommandés
+## 8. Protocole de sweep automatisé + identification système
+
+Cette section décrit le workflow complet permettant de comparer automatiquement
+X jeux de gains, d'identifier le modèle physique du pendule et de simuler des
+milliers de combinaisons offline avant de valider sur hardware.
+
+### Prérequis
+
+- Application CBC Tuner lancée, robot connecté (port COM visible)
+- Batterie chargée, robot sur sol plat, roues en contact
+- Claude Code ouvert avec le serveur MCP `cbc-tuner` actif
+
+---
+
+### Étape 1 — Sweep hardware automatisé (`run_sweep`)
+
+**Objectif :** collecter des données sur X jeux de gains en séquence automatique.
+
+#### Séquence par essai
+```
+t = 0 ms     → début capture baseline (robot tenu immobile)
+t + 200 ms   → gains appliqués au firmware  ← LÂCHER LE ROBOT
+t + 200 + hold_s → moteurs coupés (gains → 0)
+t + 600 + hold_s → fichier JSON sauvegardé dans sweeps/
+```
+
+#### Appel MCP (via Claude)
+```
+run_sweep(
+  param_sets='[
+    {"kp": 0.12, "ki": 0.0, "kd": 0.025},
+    {"kp": 0.15, "ki": 0.0, "kd": 0.030},
+    {"kp": 0.15, "ki": 0.0, "kd": 0.035},
+    {"kp": 0.18, "ki": 0.0, "kd": 0.030},
+    {"kp": 0.18, "ki": 0.0, "kd": 0.036}
+  ]',
+  hold_s=1.5,
+  output_dir="sweeps",
+  early_stop_deg=30.0
+)
+```
+
+#### Règles opérateur
+- Tenir le robot debout **avant** chaque essai (moteurs à l'arrêt)
+- Lâcher dès réception du signal "LÂCHE" dans la réponse Claude (≈200 ms après l'appel)
+- Pause de 2 s entre essais — repositionner le robot
+- Si `early_stop` : le robot a chuté, les gains sont trop agressifs
+- **Roues au sol obligatoire** — RPM=0 avec 100% PWM = essai invalide
+
+#### Fichier de sortie par essai
+```json
+{
+  "trial":   {"id": 1, "kp": 0.15, "ki": 0.0, "kd": 0.030, "hold_s": 1.5},
+  "result":  "survived",
+  "metrics": {
+    "rms_deg": 1.41,
+    "max_abs_deg": 4.2,
+    "settling_time_s": 0.35,
+    "saturation_pct": 3.2,
+    "energy": 0.87
+  },
+  "samples": [{"t_s": -0.2, "pitch": 0.1, "drive": 0.02, "pitch_rate": 0.5}, ...]
+}
+```
+
+---
+
+### Étape 2 — Analyse comparative (GUI onglet "Sweep")
+
+Ouvrir l'onglet **Sweep** dans l'application CBC Tuner.
+
+| Commande | Action |
+|---|---|
+| **Parcourir…** | Sélectionner le dossier `sweeps/` |
+| **Tri** | `rms_deg` (défaut) — classement du meilleur au moins bon |
+| **Filtre** | `Survived seulement` pour exclure les chutes |
+| Cliquer une ligne | Met la courbe en surbrillance dans le graphe overlay |
+| **Appliquer ces gains** | Envoie le jeu sélectionné au firmware via IPC |
+
+#### Lecture de l'overlay pitch
+- Couleur **verte** → RMS faible = bon équilibre
+- Couleur **rouge** → RMS élevé = oscillations importantes
+- Lignes pointillées grises → ±2° (seuil "bien stabilisé")
+
+#### Heatmap Kp × Kd
+- Chaque cellule = RMS (°) de l'essai correspondant
+- NaN (gris) = essai absent ou non-survived
+- Permet d'identifier la zone de stabilité et ses frontières
+
+#### Métriques clés à surveiller
+| Métrique | Cible | Alerte |
+|---|---|---|
+| `rms_deg` | < 2° | > 5° = instable |
+| `max_abs_deg` | < 10° | > 20° = early_stop probable |
+| `settling_time_s` | < 0.5 s | > 1.5 s = lent |
+| `saturation_pct` | < 10% | > 30% = PID en bang-bang |
+
+#### Analyse en ligne de commande (optionnel)
+```bash
+python tools/sweep_analysis.py sweeps/ --plot --top 10
+```
+Génère : overlay pitch, heatmap Kp×Kd, front de Pareto.
+
+---
+
+### Étape 3 — Identification du modèle physique (`system_id.py`)
+
+**Objectif :** identifier les paramètres physiques du pendule à partir des données.
+
+**Modèle grey-box (petits angles) :**
+```
+θ̈ = a·θ + b·u + c·θ̇
+  a = g/L_eff   > 0  (instabilité pendule)
+  b = Km/J             (gain moteur → couple angulaire)
+  c = -fric/J   ≤ 0  (frottement visqueux)
+```
+
+#### Commande
+```bash
+python tools/system_id.py sweeps/ --output model.json --plot
+```
+
+#### Interprétation du résultat
+```json
+{
+  "a": 18.3,          // g/L_eff → L_eff ≈ 9.81/18.3 ≈ 0.54 m (hauteur CoM)
+  "b": -22.1,         // gain moteur (négatif : u>0 → correction vers 0)
+  "c": -1.8,          // frottement (négatif = amortissant)
+  "r2": 0.91,         // qualité régression (> 0.85 = bon)
+  "validation_rms_deg": 2.1,  // erreur sim vs hardware (< 5° = modèle fiable)
+  "correlation": 0.94
+}
+```
+
+> **Critère de validité :** `r2 > 0.85` ET `validation_rms_deg < 5°`.
+> Si insuffisant → ajouter d'autres essais avec des angles de départ variés.
+
+---
+
+### Étape 4 — Sweep simulé (`sweep_sim.py` / `run_simulated_sweep`)
+
+**Objectif :** balayer 400+ combinaisons en <1 s pour identifier les meilleurs candidats.
+
+#### Via Claude (MCP)
+```
+run_simulated_sweep(
+  model_path="model.json",
+  kp_min=0.05, kp_max=0.45, kp_steps=20,
+  kd_min=0.0,  kd_max=0.05, kd_steps=20,
+  ki=0.0
+)
+```
+Retourne : top 10 classé + 3 candidats recommandés pour `run_sweep`.
+
+#### Via ligne de commande
+```bash
+# Grid 20×20 = 400 simulations
+python tools/sweep_sim.py model.json --kp 0.05,0.45,20 --kd 0.0,0.05,20 --plot
+
+# Recherche Bayésienne (plus efficace pour les grands espaces)
+python tools/sweep_sim.py model.json --bayesian --n-trials 100 --plot
+```
+
+#### Front de Pareto simulé
+Le graphe "overshoot vs settling_time" identifie les points non-dominés :
+un gain qui améliore l'un des deux critères sans dégrader l'autre.
+Les **3 meilleurs points Pareto** sont les candidats à valider sur hardware.
+
+---
+
+### Étape 5 — Validation hardware des meilleurs candidats
+
+Reprendre `run_sweep` avec les 3 candidats du sweep simulé :
+
+```
+run_sweep(
+  param_sets='[
+    {"kp": 0.22, "ki": 0.0, "kd": 0.038},
+    {"kp": 0.18, "ki": 0.0, "kd": 0.032},
+    {"kp": 0.15, "ki": 0.0, "kd": 0.030}
+  ]',
+  hold_s=3.0
+)
+```
+
+Comparer les métriques hardware avec les métriques simulées :
+- Écart `rms_deg` sim/hardware < 2° → modèle fiable, la simulation est exploitable
+- Écart > 5° → reidentifier le modèle avec plus de données
+
+---
+
+### Diagnostics PID depuis les courbes
+
+```
+Oscillations > 5 Hz      →  Kd trop fort (amplifie le bruit gyro)
+Oscillations < 2 Hz      →  Kp trop fort OU Kd trop faible
+Dérive lente persistante →  Ki trop faible (erreur statique non compensée)
+saturation_pct > 30%     →  PID en bang-bang, réduire Kp
+settling_time_s > 2 s    →  Kp trop faible
+early_stop systématique  →  hors zone de stabilité, réduire Kp
+```
+
+---
+
+### Cycle itératif recommandé
+
+```
+① run_sweep (5–10 essais Kp/Kd, Ki=0)
+        ↓
+② Onglet Sweep → heatmap → identifier zone stable
+        ↓
+③ system_id.py → model.json  (si r² > 0.85)
+        ↓
+④ sweep_sim / run_simulated_sweep → top 3 candidats
+        ↓
+⑤ run_sweep (top 3, hold_s=3s) → validation hardware
+        ↓
+⑥ Sélectionner le meilleur → ajouter Ki (0.02 puis 0.04)
+        ↓
+⑦ Activer boucle vitesse CBC (Kp_v ≈ 0.02–0.05)
+```
+
+---
+
+## 9. Gains de départ recommandés
 
 | PID          | Kp    | Ki    | Kd    |
 |---|---|---|---|
