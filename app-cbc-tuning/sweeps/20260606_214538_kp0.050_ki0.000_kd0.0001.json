@@ -1,0 +1,19 @@
+{
+  "trial": {
+    "id": 4,
+    "kp": 0.05,
+    "ki": 0.0,
+    "kd": 0.0001,
+    "hold_s": 2.0
+  },
+  "result": "rated",
+  "score": 0,
+  "metrics": {
+    "rms_deg": null,
+    "max_abs_deg": null,
+    "settling_time_s": null,
+    "saturation_pct": null,
+    "energy": null
+  },
+  "samples": []
+}

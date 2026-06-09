@@ -37,6 +37,7 @@ typedef struct
     float kp;
     float ki;
     float kd;
+    float nd;              /* derivative filter coefficient N (0 = no filter) */
 
     float sample_time_s;
 
@@ -48,6 +49,7 @@ typedef struct
 
     float integrator;
     float prev_measurement;
+    float d_state;         /* filtered derivative state */
     float last_output;
     uint8_t initialized;
     PID_Mode_t mode;
@@ -62,6 +64,7 @@ PID_Status_t PID_Init(PID_Controller_t *pid,
                       float out_max);
 
 PID_Status_t PID_SetTunings(PID_Controller_t *pid, float kp, float ki, float kd);
+PID_Status_t PID_SetDerivativeFilter(PID_Controller_t *pid, float nd);
 PID_Status_t PID_SetSampleTime(PID_Controller_t *pid, float sample_time_s);
 PID_Status_t PID_SetOutputLimits(PID_Controller_t *pid, float out_min, float out_max);
 PID_Status_t PID_SetIntegralLimits(PID_Controller_t *pid, float integral_min, float integral_max);

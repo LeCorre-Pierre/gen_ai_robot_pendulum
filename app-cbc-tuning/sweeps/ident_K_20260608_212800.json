@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-06-08T21:28:01",
+  "type": "ident_K",
+  "parameters": {
+    "amplitude_rpm": 20,
+    "half_period_s": 0.35,
+    "nb_cycles": 15
+  },
+  "results": {
+    "K_deg_s2": 20.1,
+    "K_sigma_deg_s2": 212.6,
+    "R2": 0.4056,
+    "a_rad_s2": -12.47,
+    "c_rad_s2": -3.6996,
+    "n_pts": 208,
+    "excitation_mean": 0.199,
+    "quality": "⚠ Incertitude élevée — ajouter des cycles"
+  }
+}

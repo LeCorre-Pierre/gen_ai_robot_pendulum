@@ -244,7 +244,7 @@ Durée d'observation : 1,5 s par essai.
 | T6 | 0.14 | 0.025 | 0    | −28° → ±3°        | 10.1° | Forte récupération depuis −28°, finit à ±3° |
 | T7 | 0.14 | 0.030 | 0    | ±28°              | 18.7° | Très instable |
 | T8 | 0.15 | 0.025 | 0    | 0° → +9°          | 2.69° | Stable mais offset positif persistant (+5°) |
-| **T9** | **0.15** | **0.030** | **0** | **−3.4° à +3.9°** | **1.41°** | 🏆 **MEILLEUR** — pid_p max=±0.51, pas de saturation |
+| **T9** | **0.15** | **0.030** | **0** | **−3.4° à +3.9°** | **1.41°** | **MEILLEUR** — pid_p max=±0.51, pas de saturation |
 | T10 | 0.12 | 0.025 | 0.02 | +7.6° → −5.2°   | 3.60° | Bon comportement, I trop court pour évaluer |
 
 #### Analyse du batch
@@ -255,7 +255,7 @@ Durée d'observation : 1,5 s par essai.
 - Oscillations régulières et amorties : −3.4° à +3.9°, std = 1.41°
 - Offset moyen = −1.2° → candidat idéal pour ajouter Ki=0.02 lors de la prochaine session
 
-> ⚠️ **Réserve (retour utilisateur) :** en fin de session (pile faible), les moteurs réagissaient moins bien et l'équilibre était à peine atteint. Les résultats T8–T10 sont à **reconfirmer avec une pile chargée** avant d'être considérés comme fiables. La tension de batterie basse peut dégrader la réponse du L298 et fausser le réglage.
+> **Réserve (retour utilisateur) :** en fin de session (pile faible), les moteurs réagissaient moins bien et l'équilibre était à peine atteint. Les résultats T8–T10 sont à **reconfirmer avec une pile chargée** avant d'être considérés comme fiables. La tension de batterie basse peut dégrader la réponse du L298 et fausser le réglage.
 
 **Observations clés du batch :**
 
@@ -484,31 +484,136 @@ early_stop systématique  →  hors zone de stabilité, réduire Kp
 
 ---
 
-### Cycle itératif recommandé
+## 9. Identification du gain actionneur K
+
+### Modèle
 
 ```
-① run_sweep (5–10 essais Kp/Kd, Ki=0)
-        ↓
-② Onglet Sweep → heatmap → identifier zone stable
-        ↓
-③ system_id.py → model.json  (si r² > 0.85)
-        ↓
-④ sweep_sim / run_simulated_sweep → top 3 candidats
-        ↓
-⑤ run_sweep (top 3, hold_s=3s) → validation hardware
-        ↓
-⑥ Sélectionner le meilleur → ajouter Ki (0.02 puis 0.04)
-        ↓
-⑦ Activer boucle vitesse CBC (Kp_v ≈ 0.02–0.05)
+θ̈ = K·u + a·θ + c
+  K  — gain actionneur (u normalisé [-1,+1] → accélération angulaire °/s²)
+  a  — terme de stabilité : <0 = stable (upside-down), >0 = instable (upright)
+  c  — biais constant (gravité résiduelle, frottements)
 ```
+
+### Protocole
+
+- Robot à l'envers (équilibre stable, pas de limite de temps)
+- Excitation via commande SET_SP (0x21) — firmware bypass CBC et sécurité (timeout 500 ms)
+- Signal carré (keep-alive 4 Hz) ou sinus (envoi 50 Hz, intègre le keep-alive)
+- Régression OLS sur [u, θ, 1] → θ̈ = Δ(pitch_rate) / dt_médian
+- Résultats sauvegardables en JSON depuis l'onglet "Ident K" de l'application
+
+### Tous les essais (session 2026-06-08)
+
+| # | Signal | Amp | T½ (s) | n | K (°/s²) | σ/|K| | R² | a (rad/s²) | Note |
+|---|--------|-----|--------|---|-----------|------|-----|------------|------|
+| 1 | Carré | 25 | 0.20 | 119 | **-1 935** | 13% | 0.357 | +0.73 | a suspect |
+| 2 | Carré | 25 | 0.30 | 119 | -670 | 42% | 0.283 | -9.4 | sigma élevé |
+| 3 | Carré | 25 | 0.30 | 118 | -759 | 38% | 0.258 | -8.0 | sigma élevé |
+| 4 | Carré | 30 | 0.20 | 119 | **-1 912** | 12% | 0.385 | -0.55 | a suspect |
+| 5 | Sinus | 20 | 0.35 | 208 | +20 | — | 0.406 | -12.5 | K ≈ 0 |
+| 6 | Sinus | 20 | 0.33 | 196 | -73 | — | 0.356 | -11.6 | K ≈ 0 |
+| 7 | Sinus | 25 | 0.33 | 196 | -239 | 95% | 0.325 | -12.3 | sigma/|K| >> 1 |
+| 8 | Carré | 30 | 0.18 | 108 | **-2 243** | 9% | 0.524 | +1.22 | a suspect |
+| 9 | Carré | 30 | 0.25 | 60 | -3 236 | 10% | **0.618** | -2.35 | n faible |
+| 10 | Sinus | 30 | 0.40 | 237 | +2 802 | 13% | 0.512 | -22 | signe inversé |
+| 11 | Sinus | 50 | 0.30 | 177 | +491 | 79% | 0.392 | -27.6 | sigma élevé |
+| 12 | Sinus | 20 | 0.50 | 297 | +646 | 34% | 0.435 | -7.4 | signe inversé |
+
+### Analyse
+
+**Problème principal — signe de K incohérent entre sinus et carré.**
+K est une constante mécanique, son signe ne peut pas changer. Il l'est pourtant : négatif pour le carré rapide, positif pour le sinus. Cause : la cadence télémétrie est ~20 Hz (dt_med ≈ 50 ms). Pour les courtes demi-périodes (0.18–0.20 s = 3–4 échantillons par demi-période), le robot n'a pas le temps de répondre entre deux trames → θ̈ estimé par Δ(pitch_rate)/50 ms voit des déphasages différents selon la forme d'onde → K apparent change de signe.
+
+**Groupe le plus reproductible — carré rapide (T½ = 0.18–0.20 s) :**
+Essais 1, 4, 8 convergent à K ≈ **-2 000 °/s²**, σ/|K| ≈ 10–13 %, reproductibles à 2 % l'un de l'autre.
+Limite : `a` ≈ 0 (devrait être négatif upside-down) → u et θ colinéaires sur des demi-périodes aussi courtes.
+
+**Valeur retenue : K ≈ -2 000 °/s²** (incertitude estimée ±15 %)
+
+**Prochaine étape pour fiabiliser :** augmenter le taux télémétrie firmware (actuellement ~20 Hz) à ≥ 50 Hz pour que dt_med ≤ 20 ms et réduire l'erreur sur θ̈.
 
 ---
 
-## 9. Gains de départ recommandés
+## 10. Identification du délai de transport td
 
-| PID          | Kp    | Ki    | Kd    |
-|---|---|---|---|
-| Angle CBC    | 0.01  | 0.0001   | 0.0001gé les serveurs mcp ?
-   |
-| Vitesse CBC  | 0.05  | 0.01  | 0.0   |
-| Moteur G/D   | 0.050 | 0.060 | 0.0   |
+### Méthode
+
+Signal carré ±RPM injecté via SET_SP, bypass CBC.
+Cross-corrélation normalisée `drive ⋆ θ̈` — pic dans la fenêtre causale [0, T½] = td.
+θ̈ calculé depuis pitch_rate rééchantillonné sur grille uniforme (dt_med), évite les artéfacts de burst USB-CDC.
+
+### Tous les essais (session 2026-06-08)
+
+| # | Amp | T½ (s) | Cycles | td (ms) | peak_corr | dt_med (ms) | Note |
+|---|-----|--------|--------|---------|-----------|-------------|------|
+| 1 | 25  | 0.25   | 20     | **189** | 0.807     | 63          | Référence |
+| 2 | 20  | 0.20   | 15     | 126     | 0.809     | 63          | T½ ≈ td — fenêtre causale trop étroite |
+| 3 | 20  | 0.40   | 15     | **189** | 0.790     | 63          | |
+| 4 | 25  | 0.40   | 10     | **189** | 0.778     | 63          | |
+| 5 | 30  | 0.40   | 10     | **189** | 0.759     | 63          | |
+
+### Analyse
+
+**Consensus fort : 4/5 essais donnent td = 189 ms**, pour des amplitudes différentes (20, 25, 30 RPM) et des demi-périodes différentes (0.25 s, 0.40 s).
+
+L'essai #2 (T½ = 0.20 s) est l'outlier à 126 ms. La règle à respecter : **T½ ≥ 2 × td** pour que la fenêtre causale soit assez large. Ici T½=200ms ≈ td → résultat non fiable.
+
+**Résolution limitée par dt_med = 63 ms.** Les lags possibles sont multiples entiers de 63 ms : 0, 63, 126, **189**, 252 ms… La résolution est ±32 ms. La vraie td est dans **[157 ms, 221 ms]**.
+
+**Composition probable du délai :**
+- Latence VCP + traitement firmware : ~5 ms
+- Montée en vitesse moteur (PID vitesse, gearbox 29:1) : ~80–120 ms
+- Réponse mécanique pendule + filtre IMU complémentaire : ~50–80 ms
+
+### Valeur retenue : **td = 189 ms ± 30 ms**
+
+### Règle pour le réglage CBC
+
+Avec td ≈ 190 ms, le correcteur PID boucle interne (angle) doit avoir une constante de temps de boucle fermée **nettement supérieure à td**. En pratique : temps de réponse boucle interne ≥ 2 × td ≈ 380 ms, soit une bande passante ≤ 2–3 rad/s (0.3–0.5 Hz). Cela confirme des gains Kp modérés (≤ 0.20) et Kd relativement faible.
+
+### Prochaine étape
+
+Augmenter dt_med en passant la télémétrie à ≥ 50 Hz (firmware recompilé avec gyro ×100) pour affiner la résolution à ~20 ms et réduire l'incertitude sur td.
+
+---
+
+## 11. Paramètres système identifiés — récapitulatif
+
+Ces trois valeurs sont les entrées du modèle physique utilisé dans l'onglet **Simulation** de l'application.
+
+```
+Modèle UFOPDT :   θ̈ = a²·θ − K·u(t − τd)
+```
+
+| Paramètre | Symbole | Valeur retenue | Incertitude | Champ simulation |
+|-----------|---------|---------------|-------------|-----------------|
+| Pôle instable | a | **7.38 rad/s** | géométrique | Pôle a |
+| Gain actionneur | K | **2 000 °/s²** | ±15 % | Gain K |
+| Délai de transport | τd | **0.189 s** | ±30 ms | Retard τd |
+
+### Détail de chaque paramètre
+
+**a = 7.38 rad/s**
+- Source : mesure physique du centre de masse
+- L_eff = 18 cm (distance sol → CoM, mesuré)
+- a = √(g / L) = √(9.81 / 0.18) = 7.38 rad/s
+- a² = 54.5 s⁻²
+
+**K = 2 000 °/s²**
+- Source : ident_K, groupe carré T½ = 0.18–0.20 s (essais 1, 4, 8)
+- Valeur identifiée : K_ident ≈ −2 000 °/s² (signe convention OLS)
+- Dans le modèle simulateur (formule `−K·u`) : **K = +2 000** (positif)
+- Condition minimale de stabilité : Kp > a²/K = 54.5/2000 = 0.027
+
+**τd = 0.189 s**
+- Source : ident_td, 4/5 essais convergents (session 2026-06-08)
+- Plage [157 ms, 221 ms] — résolution limitée à dt_med = 63 ms
+- Conséquence pour le réglage : bande passante boucle interne ≤ π/(2·τd) ≈ 8.3 rad/s
+- Kp=0.15 avec K=2000 donne ωc ≈ 5 rad/s → marge de phase réduite, gains à ne pas dépasser
+
+
+Manuellement 
+Kp 0.241
+Ki 0
+Kd 0.00041

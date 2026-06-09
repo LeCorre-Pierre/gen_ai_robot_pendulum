@@ -34,6 +34,7 @@ PID_Status_t CBC_Init(CascadeBalanceController_t *controller, float sample_time_
     {
         return status;
     }
+    (void)PID_SetDerivativeFilter(&controller->angle_pid, 10.0f);
 
     status = PID_Init(&controller->velocity_pid, 0.0f, 0.0f, 0.0f, sample_time_s, -10.0f, 10.0f);
     if (status != PID_OK)

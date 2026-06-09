@@ -33,6 +33,13 @@ class TunerState:
     pid_p:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
     pid_i:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
     pid_d:      deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    # Télémétrie moteur (série temporelle)
+    t_motor:   deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    sp_rpm_ts: deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    rpm_l_ts:  deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    rpm_r_ts:  deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    pwm_l_ts:  deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
+    pwm_r_ts:  deque[float] = field(default_factory=lambda: deque(maxlen=12_000))
     rpm_l: int   = 0
     rpm_r: int   = 0
     pwm_l: float = 0.0

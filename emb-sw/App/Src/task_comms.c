@@ -35,6 +35,11 @@ static volatile uint16_t s_stream_rate_hz   = STREAM_RATE_DEFAULT_HZ;
 static volatile uint32_t s_last_cmd_tick    = 0U;
 static volatile int16_t  s_vcp_sp_rpm       = 0;
 
+/* RPM override: SET_SP command active within the last 500 ms */
+#define RPM_OVERRIDE_TIMEOUT_MS  500U
+static volatile uint8_t  s_rpm_override_active = 0U;
+static volatile uint32_t s_rpm_override_ts     = 0U;
+
 /* ── UART RX ring buffer (ISR → task) ───────────────────────────────────── */
 static volatile uint8_t  s_rx_ring[RX_RING_SIZE];
 static volatile uint16_t s_rx_head = 0U;   /* written by ISR  */
@@ -51,6 +56,7 @@ static void Comms_Dispatch(const VcpPacket_t *pkt);
 static void Comms_SendTelemetry(void);
 static void Comms_SendAck(uint8_t cmd_type, uint8_t status);
 static void Comms_SendImuTelemetry(void);
+static void Comms_SendCalibTelemetry(const ControlState_t *cs);
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
@@ -73,6 +79,16 @@ void VCP_NotifyRxByte(uint8_t byte)
 uint8_t VCP_IsStreamActive(void)   { return s_stream_active; }
 uint32_t VCP_GetLastCmdTick(void)  { return s_last_cmd_tick; }
 int16_t  VCP_GetSetpointRpm(void)  { return s_vcp_sp_rpm; }
+
+uint8_t VCP_IsRpmOverrideActive(void)
+{
+    if (!s_rpm_override_active) { return 0U; }
+    if ((HAL_GetTick() - s_rpm_override_ts) > RPM_OVERRIDE_TIMEOUT_MS) {
+        s_rpm_override_active = 0U;
+        return 0U;
+    }
+    return 1U;
+}
 
 void VCP_SetStreamActive(uint8_t enable)
 {
@@ -189,11 +205,10 @@ static void Comms_Dispatch(const VcpPacket_t *pkt)
         if (pkt->len < (uint16_t)sizeof(VcpCmdSetSp_t)) { break; }
         VcpCmdSetSp_t cmd;
         memcpy(&cmd, pkt->payload, sizeof(cmd));
-        s_vcp_sp_rpm = cmd.sp_rpm;
-        float sp_norm = (float)cmd.sp_rpm / MTR_MAX_RPM;
-        if (sp_norm >  1.0f) { sp_norm =  1.0f; }
-        if (sp_norm < -1.0f) { sp_norm = -1.0f; }
-        MTR_SetDifferential(sp_norm, sp_norm);
+        s_vcp_sp_rpm          = cmd.sp_rpm;
+        s_rpm_override_active = 1U;
+        s_rpm_override_ts     = HAL_GetTick();
+        /* Actual drive applied by control task (sees VCP_IsRpmOverrideActive). */
         Comms_SendAck(VCP_TYPE_CMD_SET_SP, 0U);
         break;
     }
@@ -242,6 +257,19 @@ static void Comms_Dispatch(const VcpPacket_t *pkt)
             break;
         }
         Comms_SendAck(VCP_TYPE_CMD_MOTOR_CTRL, 0U);
+        break;
+    }
+
+    case VCP_TYPE_CMD_MOTOR_CALIB: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdMotorCalib_t)) { break; }
+        VcpCmdMotorCalib_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        if (cmd.enable) {
+            Task_control_StartCalib();
+        } else {
+            Task_control_AbortCalib();
+        }
+        Comms_SendAck(VCP_TYPE_CMD_MOTOR_CALIB, 0U);
         break;
     }
 
@@ -295,9 +323,9 @@ static void Comms_SendImuTelemetry(void)
     tel.accel_x_mg   = (int16_t)(cs.accel_x_g  * 1000.0f);
     tel.accel_y_mg   = (int16_t)(cs.accel_y_g  * 1000.0f);
     tel.accel_z_mg   = (int16_t)(cs.accel_z_g  * 1000.0f);
-    tel.gyro_x_x10   = (int16_t)(cs.gyro_x_dps * 10.0f);
-    tel.gyro_y_x10   = (int16_t)(cs.gyro_y_dps * 10.0f);
-    tel.gyro_z_x10   = (int16_t)(cs.gyro_z_dps * 10.0f);
+    tel.gyro_x_x100  = (int16_t)(cs.gyro_x_dps * 100.0f);
+    tel.gyro_y_x100  = (int16_t)(cs.gyro_y_dps * 100.0f);
+    tel.gyro_z_x100  = (int16_t)(cs.gyro_z_dps * 100.0f);
     tel.pitch_x100   = (int16_t)(cs.pitch_deg    * 100.0f);
     tel.drive_x100   = (int16_t)(cs.drive_output * 100.0f);
 
@@ -307,6 +335,32 @@ static void Comms_SendImuTelemetry(void)
     pkt.flags   = 0U;
     pkt.seq     = s_tx_seq++;
     pkt.len     = (uint16_t)sizeof(VcpTelImu_t);
+    pkt.payload = (uint8_t *)&tel;
+
+    int n = VcpProtocol_Frame(&pkt, tx_buf, sizeof(tx_buf));
+    if (n > 0) {
+        HAL_UART_Transmit(&huart1, tx_buf, (uint16_t)n, 10U);
+    }
+}
+
+static void Comms_SendCalibTelemetry(const ControlState_t *cs)
+{
+    extern UART_HandleTypeDef huart1;
+
+    VcpTelCalib_t tel;
+    tel.timestamp_ms = HAL_GetTick();
+    tel.drive_x1000  = (int16_t)(cs->drive_output * 1000.0f);
+    tel.vel_l_rpm    = (int16_t)cs->vel_l_rpm;
+    tel.vel_r_rpm    = (int16_t)cs->vel_r_rpm;
+    tel.phase        = cs->calib_phase;
+    tel.calib_active = cs->calib_active;
+
+    uint8_t tx_buf[TX_BUF_SIZE];
+    VcpPacket_t pkt;
+    pkt.type    = VCP_TYPE_TELEMETRY_CALIB;
+    pkt.flags   = 0U;
+    pkt.seq     = s_tx_seq++;
+    pkt.len     = (uint16_t)sizeof(VcpTelCalib_t);
     pkt.payload = (uint8_t *)&tel;
 
     int n = VcpProtocol_Frame(&pkt, tx_buf, sizeof(tx_buf));
@@ -343,13 +397,32 @@ static void CommsTask(void *pvParameters)
     extern UART_HandleTypeDef huart1;
     HAL_UART_Receive_IT(&huart1, &s_rx_byte, 1U);   /* arm first RX */
 
-    uint32_t last_tel_ms = 0U;
+    uint32_t last_tel_ms   = 0U;
+    uint32_t last_calib_ms = 0U;
+    uint8_t  prev_calib    = 0U;
 
     for (;;) {
         Comms_ProcessRx();
 
-        if (s_stream_active) {
-            uint32_t now      = HAL_GetTick();
+        uint32_t now = HAL_GetTick();
+
+        ControlState_t cs;
+        Task_control_GetState(&cs);
+
+        /* Calibration telemetry — 100 Hz while running, one EOF packet on completion. */
+        if (cs.calib_active) {
+            if ((now - last_calib_ms) >= 10U) {
+                last_calib_ms = now;
+                Comms_SendCalibTelemetry(&cs);
+            }
+        } else if (prev_calib) {
+            /* Transition 1→0 : send exactly one EOF packet (no rate limit) */
+            Comms_SendCalibTelemetry(&cs);   /* calib_active==0 = done marker */
+        }
+        prev_calib = cs.calib_active;
+
+        /* Normal telemetry — only when streaming enabled and not calibrating */
+        if (s_stream_active && !cs.calib_active) {
             uint32_t interval = 1000U / (uint32_t)s_stream_rate_hz;
             if ((now - last_tel_ms) >= interval) {
                 last_tel_ms = now;

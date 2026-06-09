@@ -41,8 +41,10 @@ typedef struct
     uint8_t  emergency_active;  /*!< 1 après MTR_EmergencyStop()      */
 
     /* Configuration par moteur */
-    float    deadband[2];       /*!< Zone morte [0.0 .. 0.5]          */
+    float    deadband[2];       /*!< Legacy — conservé pour API       */
     float    current_limit_A[2];/*!< Limite courant en Ampères        */
+    float    dz_fwd[2];         /*!< Seuil stiction avant [0..0.7]   */
+    float    dz_rev[2];         /*!< Seuil stiction arrière [0..0.7] */
 
     /* Sécurité tilt */
     float    tilt_cutoff_deg;   /*!< Seuil coupure tilt (valeur abs.) */
@@ -103,13 +105,11 @@ static void MTR_ApplyPWM(MTR_Id_t motor, MTR_Speed_t speed)
     GPIO_TypeDef *brake_port = (motor == MTR_LEFT) ? MTR_BRAKE_LEFT_PORT : MTR_BRAKE_RIGHT_PORT;
     uint16_t      brake_pin  = (motor == MTR_LEFT) ? MTR_BRAKE_LEFT_PIN  : MTR_BRAKE_RIGHT_PIN;
 
-    float abs_speed = (speed >= 0.0f) ? speed : -speed;
-
-    /* Zone morte : en dessous du seuil → roue libre */
-    if (abs_speed < mtr.deadband[motor])
+    /* Arrêt vrai : commande < 1 % → roue libre */
+    if (speed > -0.01f && speed < 0.01f)
     {
         if (motor == MTR_LEFT) {
-            __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U); /* CMP=ARR → duty≈0% */
+            __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, MTR_PWM_PERIOD - 1U);
         } else {
             __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, 0U);
         }
@@ -117,20 +117,35 @@ static void MTR_ApplyPWM(MTR_Id_t motor, MTR_Speed_t speed)
         return;
     }
 
+    /* Compensation stiction L298 + réducteur 29:1 (identifiée 2026-06-09).
+     * Toute commande non nulle est boostée pour dépasser le frottement statique :
+     *   u > 0 → DZ_FWD + (1 - DZ_FWD) * u   ∈ [DZ_FWD, 1.0]
+     *   u < 0 → -(DZ_REV + (1 - DZ_REV) * |u|)  ∈ [-1.0, -DZ_REV]        */
+    float abs_speed = (speed >= 0.0f) ? speed : -speed;
+    float comp;
+    if (speed > 0.0f) {
+        comp = mtr.dz_fwd[motor] + (1.0f - mtr.dz_fwd[motor]) * speed;
+    } else {
+        comp = -(mtr.dz_rev[motor] + (1.0f - mtr.dz_rev[motor]) * abs_speed);
+    }
+    if (comp >  1.0f) { comp =  1.0f; }
+    if (comp < -1.0f) { comp = -1.0f; }
+    abs_speed = (comp >= 0.0f) ? comp : -comp;
+
     /* Désactivation du frein avant tout changement de direction */
     HAL_GPIO_WritePin(brake_port, brake_pin, GPIO_PIN_RESET);
 
     /* Sens de rotation — polarité par moteur (câblage inversé gauche/droite) */
     GPIO_PinState fwd = (motor == MTR_LEFT) ? MTR_DIR_FWD_LEFT : MTR_DIR_FWD_RIGHT;
     GPIO_PinState bwd = (fwd == GPIO_PIN_SET) ? GPIO_PIN_RESET : GPIO_PIN_SET;
-    HAL_GPIO_WritePin(dir_port, dir_pin, (speed >= 0.0f) ? fwd : bwd);
+    HAL_GPIO_WritePin(dir_port, dir_pin, (comp >= 0.0f) ? fwd : bwd);
 
-    /* Rapport cyclique proportionnel à |speed| — plage [0 .. MTR_PWM_PERIOD-1] */
+    /* Rapport cyclique — plage [0 .. MTR_PWM_PERIOD-1] */
     uint32_t compare = (uint32_t)(abs_speed * (float)(MTR_PWM_PERIOD - 1U));
     if (compare >= MTR_PWM_PERIOD) { compare = MTR_PWM_PERIOD - 1U; }
 
     if (motor == MTR_LEFT) {
-        /* LPTIM1: duty = (ARR - CMP) / (ARR+1) → inverser compare pour même sens que TIM */
+        /* LPTIM1: duty = (ARR - CMP) / (ARR+1) → inverser compare */
         __HAL_LPTIM_COMPARE_SET(&MTR_PWM_LPTIM_LEFT, (MTR_PWM_PERIOD - 1U) - compare);
     } else {
         __HAL_TIM_SET_COMPARE(&MTR_PWM_TIM_RIGHT, MTR_PWM_CH_RIGHT, compare);
@@ -178,6 +193,8 @@ MTR_Status_t MTR_Init(void)
     {
         mtr.deadband[i]           = MTR_DEFAULT_DEADBAND;
         mtr.current_limit_A[i]    = MTR_DEFAULT_CURRENT_LIMIT_A;
+        mtr.dz_fwd[i]             = MTR_DEFAULT_DZ_FWD;
+        mtr.dz_rev[i]             = MTR_DEFAULT_DZ_REV;
         mtr.enc_accum[i]          = 0;
         mtr.enc_prev_raw[i]       = 0U;
         mtr.enc_vel_ref[i]        = 0;
@@ -460,10 +477,21 @@ MTR_Status_t MTR_SetDifferential(MTR_Speed_t speed_left, MTR_Speed_t speed_right
 
 MTR_Status_t MTR_SetDeadband(MTR_Id_t motor, float deadband_frac)
 {
-    if (motor > MTR_RIGHT)                          { return MTR_ERR_INVALID_PARAM; }
+    if (motor > MTR_RIGHT)                             { return MTR_ERR_INVALID_PARAM; }
     if (deadband_frac < 0.0f || deadband_frac > 0.5f) { return MTR_ERR_INVALID_PARAM; }
 
     mtr.deadband[motor] = deadband_frac;
+    return MTR_OK;
+}
+
+MTR_Status_t MTR_SetDeadZone(MTR_Id_t motor, float dz_fwd, float dz_rev)
+{
+    if (motor > MTR_RIGHT)               { return MTR_ERR_INVALID_PARAM; }
+    if (dz_fwd < 0.0f || dz_fwd > 0.7f) { return MTR_ERR_INVALID_PARAM; }
+    if (dz_rev < 0.0f || dz_rev > 0.7f) { return MTR_ERR_INVALID_PARAM; }
+
+    mtr.dz_fwd[motor] = dz_fwd;
+    mtr.dz_rev[motor] = dz_rev;
     return MTR_OK;
 }
 

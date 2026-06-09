@@ -87,14 +87,22 @@ extern "C" {
 #define MTR_ADC_SENSITIVITY_VA  1.65f           /* V/A : 3.3 V = 2 A  */
 
 /* --- Valeurs par défaut ---------------------------------------------------- */
-#define MTR_DEFAULT_DEADBAND        0.15f   /* 15 % pleine échelle (L298) */
-#define MTR_DEFAULT_CURRENT_LIMIT_A 1.8f   /* A par canal, seuil sécu   */
-#define MTR_DEFAULT_TILT_CUTOFF_DEG 45.0f  /* ° — coupure si |tilt| > X */
+#define MTR_DEFAULT_DEADBAND        0.15f   /* Legacy — plus utilisé dans ApplyPWM */
+#define MTR_DEFAULT_CURRENT_LIMIT_A 1.8f   /* A par canal, seuil sécu             */
+#define MTR_DEFAULT_TILT_CUTOFF_DEG 45.0f  /* ° — coupure si |tilt| > X          */
+
+/* Compensation stiction (identifiée par calibration moteur 2026-06-09).
+ * Toute commande non nulle est boostée à DZ + (1-DZ)*u pour vaincre le
+ * frottement statique L298 + réducteur 29:1.
+ * u → DZ_FWD + (1-DZ_FWD)*u   si u > 0
+ * u → -(DZ_REV + (1-DZ_REV)*|u|)  si u < 0  */
+#define MTR_DEFAULT_DZ_FWD   0.45f  /* seuil avant identifié  (45 %) */
+#define MTR_DEFAULT_DZ_REV   0.50f  /* seuil arrière identifié (50 %) */
 
 /* --- PID de vitesse ------------------------------------------------------- */
-/* RPM pleine échelle sortie réducteur à 12 V avec chute L298 (~4 V) :
- * free-run ~230 RPM, valeur conservative 250 RPM pour marge. */
-#define MTR_MAX_RPM              250.0f
+/* RPM pleine échelle mesuré en charge réelle (2026-06-04) : 85 RPM max.
+ * Note : free-run théorique ~230 RPM mais L298 + charge + 12V réel → 85 RPM. */
+#define MTR_MAX_RPM              85.0f
 #define MTR_VEL_SAMPLE_TIME_S    0.005f  /* 200 Hz */
 #define MTR_VEL_KP_DEFAULT       0.050f
 #define MTR_VEL_KI_DEFAULT       0.060f
@@ -275,14 +283,21 @@ MTR_Status_t MTR_SafetyUpdate(float tilt_angle_deg);
 MTR_Status_t MTR_SetDifferential(MTR_Speed_t speed_left, MTR_Speed_t speed_right);
 
 /**
- * @brief  Configure la zone morte PWM en dessous de laquelle le duty cycle
- *         est forcé à 0 (le L298 ne génère pas de couple utile sous ~15%).
- *         Valeur recommandée pour L298 : 0.10 à 0.20.
- * @param  motor         MTR_LEFT ou MTR_RIGHT
- * @param  deadband_frac Fraction [0.0 .. 0.5] de la pleine échelle
- * @retval MTR_OK ou MTR_ERR_INVALID_PARAM
+ * @brief  Configure la zone morte PWM (legacy, non utilisé par MTR_ApplyPWM).
+ *         Remplacé par MTR_SetDeadZone() pour la compensation stiction.
  */
 MTR_Status_t MTR_SetDeadband(MTR_Id_t motor, float deadband_frac);
+
+/**
+ * @brief  Configure les seuils de compensation stiction par moteur.
+ *         Toute commande |u| > 0.01 est boostée à dz + (1-dz)*|u|.
+ *         Valeurs identifiées par calibration : fwd=0.45, rev=0.50.
+ * @param  motor    MTR_LEFT ou MTR_RIGHT
+ * @param  dz_fwd   Seuil avant [0.0 .. 0.7]
+ * @param  dz_rev   Seuil arrière [0.0 .. 0.7]
+ * @retval MTR_OK ou MTR_ERR_INVALID_PARAM
+ */
+MTR_Status_t MTR_SetDeadZone(MTR_Id_t motor, float dz_fwd, float dz_rev);
 
 /* --- Groupe 6 : PID de vitesse (boucle fermée encodeur) ------------------- */
 

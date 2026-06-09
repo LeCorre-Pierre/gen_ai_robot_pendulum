@@ -36,6 +36,7 @@ PID_Status_t PID_Init(PID_Controller_t *pid,
     pid->kp = kp;
     pid->ki = ki;
     pid->kd = kd;
+    pid->nd = 0.0f;
     pid->sample_time_s = sample_time_s;
     pid->out_min = out_min;
     pid->out_max = out_max;
@@ -43,6 +44,7 @@ PID_Status_t PID_Init(PID_Controller_t *pid,
     pid->integral_max = out_max;
     pid->integrator = 0.0f;
     pid->prev_measurement = 0.0f;
+    pid->d_state = 0.0f;
     pid->last_output = 0.0f;
     pid->initialized = 0U;
     pid->mode = PID_MODE_AUTOMATIC;
@@ -60,6 +62,18 @@ PID_Status_t PID_SetTunings(PID_Controller_t *pid, float kp, float ki, float kd)
     pid->kp = kp;
     pid->ki = ki;
     pid->kd = kd;
+    return PID_OK;
+}
+
+PID_Status_t PID_SetDerivativeFilter(PID_Controller_t *pid, float nd)
+{
+    if (pid == 0)
+    {
+        return PID_ERR_INVALID_PARAM;
+    }
+
+    pid->nd      = (nd >= 0.0f) ? nd : 0.0f;
+    pid->d_state = 0.0f;
     return PID_OK;
 }
 
@@ -121,6 +135,7 @@ void PID_Reset(PID_Controller_t *pid)
 
     pid->integrator = 0.0f;
     pid->prev_measurement = 0.0f;
+    pid->d_state = 0.0f;
     pid->last_output = 0.0f;
     pid->initialized = 0U;
 }
@@ -166,7 +181,23 @@ float PID_Update(PID_Controller_t *pid, float setpoint, float measurement)
     pid->integrator += pid->ki * error * pid->sample_time_s;
     pid->integrator = PID_Clamp(pid->integrator, pid->integral_min, pid->integral_max);
 
-    derivative = -pid->kd * (measurement - pid->prev_measurement) / pid->sample_time_s;
+    if (pid->nd > 0.0f)
+    {
+        /* Filtered derivative (backward Euler): D(s) = Kd*N*s/(s+N)
+         * d[k] = alpha*d[k-1] + kd_gain*(prev_meas - meas)
+         * alpha   = N*dt / (1 + N*dt)
+         * kd_gain = Kd*N  / (1 + N*dt)
+         * High-freq gain limited to Kd*N instead of Kd/dt */
+        float denom   = 1.0f + pid->nd * pid->sample_time_s;
+        float alpha   = (pid->nd * pid->sample_time_s) / denom;
+        float kd_gain = (pid->kd * pid->nd) / denom;
+        pid->d_state = alpha * pid->d_state + kd_gain * (pid->prev_measurement - measurement);
+        derivative   = pid->d_state;
+    }
+    else
+    {
+        derivative = -pid->kd * (measurement - pid->prev_measurement) / pid->sample_time_s;
+    }
 
     output = proportional + pid->integrator + derivative;
     output = PID_Clamp(output, pid->out_min, pid->out_max);

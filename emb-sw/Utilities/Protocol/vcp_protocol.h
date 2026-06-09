@@ -13,6 +13,7 @@
 /* Uplink  STM32 → PC */
 #define VCP_TYPE_TELEMETRY_PID   0x10u
 #define VCP_TYPE_TELEMETRY_IMU   0x11u
+#define VCP_TYPE_TELEMETRY_CALIB 0x12u   /* motor dead-zone calibration stream */
 
 /* Downlink  PC → STM32 */
 #define VCP_TYPE_CMD_SET_GAINS   0x20u
@@ -20,6 +21,7 @@
 #define VCP_TYPE_CMD_STREAM_CTRL 0x22u
 #define VCP_TYPE_CMD_MOTOR_CTRL  0x23u
 #define VCP_TYPE_CMD_SET_BALANCE_GAINS 0x24u
+#define VCP_TYPE_CMD_MOTOR_CALIB       0x25u   /* start/abort calibration sequence */
 
 /* loop_id for SET_BALANCE_GAINS */
 #define VCP_LOOP_ANGLE    0u
@@ -54,9 +56,9 @@ typedef struct __attribute__((packed)) {
     int16_t  accel_x_mg;      /* accel BSP X  in mg          */
     int16_t  accel_y_mg;      /* accel BSP Y  in mg          */
     int16_t  accel_z_mg;      /* accel BSP Z  in mg          */
-    int16_t  gyro_x_x10;      /* gyro  BSP X  dps × 10       */
-    int16_t  gyro_y_x10;      /* gyro  BSP Y  dps × 10       */
-    int16_t  gyro_z_x10;      /* gyro  BSP Z  dps × 10       */
+    int16_t  gyro_x_x100;     /* gyro  BSP X  dps × 100      */
+    int16_t  gyro_y_x100;     /* gyro  BSP Y  dps × 100      */
+    int16_t  gyro_z_x100;     /* gyro  BSP Z  dps × 100      */
     int16_t  pitch_x100;      /* pitch estimé × 100          */
     int16_t  drive_x100;      /* CBC drive output × 100      */
 } VcpTelImu_t;
@@ -92,6 +94,26 @@ typedef struct __attribute__((packed)) {
     float   ki;
     float   kd;
 } VcpCmdSetBalanceGains_t;
+
+/* VCP_TYPE_TELEMETRY_CALIB — 12 bytes
+ * Sent at ~100 Hz during motor calibration sequence.
+ * drive_x1000  : normalized drive command × 1000 (e.g. 500 = 0.50)
+ * vel_l/r_rpm  : wheel velocities signed (RPM, full-scale ≈ ±85)
+ * phase        : sequence phase tag 0–16
+ * calib_active : 1 = running, 0 = last packet (done) */
+typedef struct __attribute__((packed)) {
+    uint32_t timestamp_ms;
+    int16_t  drive_x1000;
+    int16_t  vel_l_rpm;
+    int16_t  vel_r_rpm;
+    uint8_t  phase;
+    uint8_t  calib_active;
+} VcpTelCalib_t;
+
+/* VCP_TYPE_CMD_MOTOR_CALIB — 1 byte */
+typedef struct __attribute__((packed)) {
+    uint8_t enable;   /* 1 = start sequence, 0 = abort */
+} VcpCmdMotorCalib_t;
 
 /* VCP_TYPE_ACK — 2 bytes */
 typedef struct __attribute__((packed)) {
