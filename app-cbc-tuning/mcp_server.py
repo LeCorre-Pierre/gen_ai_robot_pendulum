@@ -39,6 +39,10 @@ KP_MAX = 0.5
 KI_MAX = 0.2
 KD_MAX = 0.05
 
+VEL_KP_MAX = 0.10
+VEL_KI_MAX = 0.05
+VEL_KD_MAX = 0.02
+
 
 # ── Helpers IPC ───────────────────────────────────────────────────────────────
 
@@ -73,13 +77,16 @@ app = FastMCP(
     "CBC Tuner",
     instructions=(
         "Tu es un assistant de réglage PID pour un robot pendule inversé à deux roues. "
-        "Le robot est contrôlé par un PID Angle (boucle interne CBC) dont tu peux modifier "
-        "les gains Kp, Ki, Kd via UART. "
-        "Procédure : utilise get_telemetry pour observer, set_angle_gains pour ajuster, "
-        "itère jusqu'à la stabilisation. "
-        f"Limites de sécurité absolues : Kp≤{KP_MAX}, Ki≤{KI_MAX}, Kd≤{KD_MAX}. "
+        "Architecture CASCADE : "
+        "  Boucle INTERNE (angle) : pitch_deg → drive [-1,+1]. "
+        "  Boucle EXTERNE (vitesse) : vel_avg_rpm → target_pitch_deg (consigne interne). "
+        "Procédure : commence par stabiliser la boucle angle (set_angle_gains), "
+        "puis active progressivement la boucle vitesse (set_velocity_gains). "
+        f"Limites angle  : Kp≤{KP_MAX}, Ki≤{KI_MAX}, Kd≤{KD_MAX}. "
+        f"Limites vitesse: Kp≤{VEL_KP_MAX}, Ki≤{VEL_KI_MAX}, Kd≤{VEL_KD_MAX}. "
+        "target_pitch_deg = sortie boucle vitesse (< ±8° = normal). "
         "pitch_deg > 0 = robot incliné vers l'avant. "
-        "pid_p, pid_i, pid_d sont en unités normalisées [-1, +1] ; au-delà le firmware sature. "
+        "pid_p, pid_i, pid_d en unités normalisées [-1,+1]. "
         "Appelle emergency_stop si le robot devient incontrôlable."
     ),
 )
@@ -140,22 +147,31 @@ def _build_telemetry(state: dict[str, Any], duration_s: float,
     kp = gains.get("kp", 0.0)
     saturation_threshold: float | None = round(1.0 / kp, 1) if kp > 0 else None
 
+    vel_gains: dict[str, float] = state.get("vel_gains", {})
+
     return json.dumps({
         "current": {
-            "pitch_deg":     round(float(pw[-1]),   2) if len(pw)  else 0.0,
-            "pid_p":         round(float(ppw[-1]),  3) if len(ppw) else 0.0,
-            "pid_i":         round(float(piw[-1]),  3) if len(piw) else 0.0,
-            "pid_d":         round(float(pdw[-1]),  3) if len(pdw) else 0.0,
-            "rpm_left":      state.get("rpm_l", 0),
-            "rpm_right":     state.get("rpm_r", 0),
-            "pwm_left_pct":  round(float(state.get("pwm_l", 0.0)) * 100.0, 1),
-            "pwm_right_pct": round(float(state.get("pwm_r", 0.0)) * 100.0, 1),
+            "pitch_deg":       round(float(pw[-1]),   2) if len(pw)  else 0.0,
+            "target_pitch_deg": round(float(state.get("target_pitch", 0.0)), 2),
+            "vel_avg_rpm":     round(float(state.get("vel_avg", 0.0)), 1),
+            "pid_p":           round(float(ppw[-1]),  3) if len(ppw) else 0.0,
+            "pid_i":           round(float(piw[-1]),  3) if len(piw) else 0.0,
+            "pid_d":           round(float(pdw[-1]),  3) if len(pdw) else 0.0,
+            "rpm_left":        state.get("rpm_l", 0),
+            "rpm_right":       state.get("rpm_r", 0),
+            "pwm_left_pct":    round(float(state.get("pwm_l", 0.0)) * 100.0, 1),
+            "pwm_right_pct":   round(float(state.get("pwm_r", 0.0)) * 100.0, 1),
         },
         "gains": {
             "kp": kp,
             "ki": gains.get("ki", 0.0),
             "kd": gains.get("kd", 0.0),
             "saturation_threshold_deg": saturation_threshold,
+        },
+        "vel_gains": {
+            "kp": vel_gains.get("kp", 0.0),
+            "ki": vel_gains.get("ki", 0.0),
+            "kd": vel_gains.get("kd", 0.0),
         },
         "statistics": {
             "pitch": _stats(pw),
@@ -213,14 +229,46 @@ def set_angle_gains(kp: float, ki: float, kd: float) -> str:
 
 
 @app.tool()
+def set_velocity_gains(kp: float, ki: float, kd: float) -> str:
+    """Envoie de nouveaux gains PID vitesse (boucle externe) au firmware.
+
+    La boucle vitesse transforme la vitesse des roues en consigne d'angle
+    pour la boucle interne. Commencer avec des gains très faibles (Kp ≈ 0.005).
+    La consigne de vitesse est 0 RPM (position hold) par défaut.
+
+    Args:
+        kp: Gain proportionnel [0, 0.10]
+        ki: Gain intégral      [0, 0.05]  — compense la dérive lente
+        kd: Gain dérivé        [0, 0.02]
+    """
+    errors = []
+    if not (0.0 <= kp <= VEL_KP_MAX):
+        errors.append(f"kp={kp} hors [0, {VEL_KP_MAX}]")
+    if not (0.0 <= ki <= VEL_KI_MAX):
+        errors.append(f"ki={ki} hors [0, {VEL_KI_MAX}]")
+    if not (0.0 <= kd <= VEL_KD_MAX):
+        errors.append(f"kd={kd} hors [0, {VEL_KD_MAX}]")
+    if errors:
+        return json.dumps({"error": " | ".join(errors)})
+
+    result = _post("/vel_gains", {"kp": kp, "ki": ki, "kd": kd})
+    if "error" in result:
+        return json.dumps(result)
+
+    return json.dumps({"ok": True, "kp": kp, "ki": ki, "kd": kd,
+                       "note": "Surveiller target_pitch_deg dans get_telemetry (< ±8°)"})
+
+
+@app.tool()
 def emergency_stop() -> str:
-    """Remet immédiatement tous les gains PID angle à 0.
+    """Remet immédiatement tous les gains PID (angle ET vitesse) à 0.
     À appeler si le robot devient incontrôlable.
     """
+    _post("/vel_gains", {"kp": 0.0, "ki": 0.0, "kd": 0.0})
     result = _post("/gains", {"kp": 0.0, "ki": 0.0, "kd": 0.0})
     if "error" in result:
         return json.dumps(result)
-    return json.dumps({"ok": True, "message": "Gains remis à 0."})
+    return json.dumps({"ok": True, "message": "Gains angle et vitesse remis à 0."})
 
 
 @app.tool()

@@ -2,11 +2,21 @@
 cbc_tuner/gui.py — CBC balance PID tuning interface.
 
 Telemetry received:
-  VCP_TYPE_TELEMETRY_IMU (0x11) → pitch, drive output, pitch rate
-  VCP_TYPE_TELEMETRY_PID (0x10) → motor RPM measured, motor PWM output
+  VCP_TYPE_TELEMETRY_IMU (0x11) → pitch, drive output (angle PID), pitch rate
+  VCP_TYPE_TELEMETRY_PID (0x10) → vel setpoint/measured, target_pitch, motor outputs
+
+    VcpTelPid_t field mapping (cascade mode):
+      sp_rpm      : velocity setpoint (RPM)
+      pv_l_rpm    : left wheel velocity (RPM)
+      pv_r_rpm    : right wheel velocity (RPM)
+      err_l       : target_pitch_deg × 100  (outer loop output)
+      err_r       : (reserved)
+      pwm_l_x100  : left motor drive output × 100
+      pwm_r_x100  : right motor drive output × 100
 
 Commands sent:
-  VCP_TYPE_CMD_SET_BALANCE_GAINS (0x24) → loop_id=0, kp, ki, kd  (angle only)
+  VCP_TYPE_CMD_SET_BALANCE_GAINS (0x24) → loop_id=0 angle / 1 velocity / 2 yaw
+  VCP_TYPE_CMD_SET_SP            (0x21) → velocity setpoint in RPM
   VCP_TYPE_CMD_STREAM_CTRL       (0x22) → enable, rate_hz
 """
 from __future__ import annotations
@@ -51,13 +61,21 @@ C_D_TERM = "#42a5f5"   # bleu   — terme D
 
 _SOF1, _SOF2, _EOF, _VER = 0xAA, 0x55, 0x33, 0x01
 
-_TYPE_TEL_PID    = 0x10
-_TYPE_TEL_IMU    = 0x11
-_TYPE_TEL_CALIB  = 0x12
-_TYPE_STREAM     = 0x22
-_TYPE_BAL_GAINS  = 0x24
-_TYPE_SET_SP     = 0x21
-_TYPE_MOTOR_CALIB = 0x25
+_TYPE_TEL_PID      = 0x10
+_TYPE_TEL_IMU      = 0x11
+_TYPE_TEL_CALIB    = 0x12
+_TYPE_TEL_POS      = 0x13
+_TYPE_STREAM       = 0x22
+_TYPE_BAL_GAINS    = 0x24
+_TYPE_SET_SP       = 0x21
+_TYPE_MOTOR_CALIB  = 0x25
+_TYPE_SET_POS_SP   = 0x26
+_TYPE_SET_POS_TRAJ = 0x27
+
+_TRAJ_HOLD  = 0
+_TRAJ_SINUS = 1
+_TYPE_SPIN_CTRL = 0x28
+_CTRL_SPIN = 3
 
 # VcpTelPid_t : uint32 + 7×int16 = 18 bytes
 # ts, sp_rpm, pv_l, pv_r, err_l, err_r, pwm_l_x100, pwm_r_x100
@@ -73,6 +91,11 @@ _SZ_IMU  = struct.calcsize(_FMT_IMU)   # 20
 # ts_ms, drive_x1000, vel_l_rpm, vel_r_rpm, phase, calib_active
 _FMT_CALIB = "<IhhhBB"
 _SZ_CALIB  = struct.calcsize(_FMT_CALIB)  # 12
+
+# VcpTelPos_t : uint32 + 3×int16 + 2×uint8 = 12 bytes
+# ts_ms, pos_cm_x10, sp_cm_x10, vel_sp_rpm, ctrl_mode, traj_mode
+_FMT_POS = "<IhhhBB"
+_SZ_POS  = struct.calcsize(_FMT_POS)   # 12
 
 _RATES    = [5, 10, 20, 50, 100]
 _BAUDS    = ["115200", "230400"]
@@ -107,6 +130,17 @@ def _gains_frame(loop_id: int, kp: float, ki: float, kd: float, seq: int) -> byt
 def _sp_frame(rpm: int, seq: int) -> bytes:
     return _build_frame(_TYPE_SET_SP, struct.pack("<h", max(-85, min(85, rpm))), seq)
 
+def _pos_sp_frame(sp_cm: float, seq: int) -> bytes:
+    return _build_frame(_TYPE_SET_POS_SP, struct.pack("<f", sp_cm), seq)
+
+def _pos_traj_frame(mode: int, amplitude_cm: float, period_s: float, seq: int) -> bytes:
+    return _build_frame(_TYPE_SET_POS_TRAJ,
+                        struct.pack("<Bff", mode, amplitude_cm, period_s), seq)
+
+def _spin_frame(enable: bool, interval_s: float, yaw_force: float, seq: int) -> bytes:
+    return _build_frame(_TYPE_SPIN_CTRL,
+                        struct.pack("<Bff", int(enable), interval_s, yaw_force), seq)
+
 def _list_ports():
     result = []
     for p in sorted(serial.tools.list_ports.comports(), key=lambda x: x.device):
@@ -121,10 +155,12 @@ def _list_ports():
 class SerialReader(QThread):
     # pitch_deg, drive_pct (%), pitch_rate (°/s)
     imu_sample   = Signal(float, float, float)
-    # pv_l_rpm, pv_r_rpm, pwm_l_pct, pwm_r_pct, sp_rpm
-    pid_sample   = Signal(int, int, float, float, int)
+    # pv_l_rpm, pv_r_rpm, pwm_l_pct, pwm_r_pct, sp_rpm, target_pitch_deg
+    pid_sample   = Signal(int, int, float, float, int, float)
     # ts_ms, drive, vel_l_rpm, vel_r_rpm, phase, calib_active
     calib_sample = Signal(int, float, float, float, int, int)
+    # pos_cm, sp_cm, vel_sp_rpm, ctrl_mode, traj_mode
+    pos_sample   = Signal(float, float, float, int, int)
     rx_bytes     = Signal(int)
     error        = Signal(str)
 
@@ -188,14 +224,15 @@ class SerialReader(QThread):
                     )
 
                 elif pkt_type == _TYPE_TEL_PID and plen >= _SZ_PID:
-                    _ts, sp, pv_l, pv_r, _el, _er, pwm_l, pwm_r = \
+                    _ts, sp, pv_l, pv_r, target_pitch_x100, _er, pwm_l, pwm_r = \
                         struct.unpack_from(_FMT_PID, payload)
                     self.pid_sample.emit(
                         int(pv_l),
                         int(pv_r),
-                        pwm_l / 100.0,   # PWM gauche [-1..1]
-                        pwm_r / 100.0,   # PWM droite [-1..1]
-                        int(sp),         # consigne RPM
+                        pwm_l / 100.0,              # left motor output [-1..1]
+                        pwm_r / 100.0,              # right motor output [-1..1]
+                        int(sp),                    # velocity setpoint (RPM)
+                        target_pitch_x100 / 100.0,  # outer loop output (°)
                     )
 
                 elif pkt_type == _TYPE_TEL_CALIB and plen >= _SZ_CALIB:
@@ -208,6 +245,17 @@ class SerialReader(QThread):
                         float(vr),
                         int(phase),
                         int(active),
+                    )
+
+                elif pkt_type == _TYPE_TEL_POS and plen >= _SZ_POS:
+                    _ts, pos_x10, sp_x10, vel_sp, ctrl, traj = \
+                        struct.unpack_from(_FMT_POS, payload)
+                    self.pos_sample.emit(
+                        pos_x10 / 10.0,
+                        sp_x10  / 10.0,
+                        float(vel_sp),
+                        int(ctrl),
+                        int(traj),
                     )
 
             i += total
@@ -592,6 +640,69 @@ class _AnglePidPanel(QGroupBox):
         self._status.setText(f"→  Kp={kp:.4f}  Ki={ki:.4f}  Kd={kd:.4f}")
 
 
+# ── Velocity PID panel ───────────────────────────────────────────────────
+
+class _VelocityPidPanel(QGroupBox):
+    apply_requested = Signal(float, float, float)
+
+    def __init__(self, parent=None):
+        super().__init__("Velocity PID  —  boucle externe", parent)
+        self.setStyleSheet("QGroupBox { font-weight:bold; font-size:11px; }")
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 12, 8, 8)
+        lay.setSpacing(4)
+
+        self._kp = _PidRow("Kp", 0.100)
+        self._ki = _PidRow("Ki", 0.050)
+        self._kd = _PidRow("Kd", 0.020)
+
+        self._debounce = QTimer(singleShot=True, interval=300)
+        self._debounce.timeout.connect(self._send)
+
+        for row in (self._kp, self._ki, self._kd):
+            lay.addWidget(row)
+            row.value_changed.connect(lambda _: self._debounce.start())
+
+        self._status = QLabel("—")
+        self._status.setStyleSheet(
+            "color:#90a4ae;font-size:10px;font-family:Consolas;"
+        )
+        lay.addWidget(self._status)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+        self._reset_btn = QPushButton("Reset (0,0,0)")
+        self._reset_btn.setFixedHeight(24)
+        self._reset_btn.clicked.connect(self._reset)
+        btn_row.addWidget(self._reset_btn)
+        self._apply_btn = QPushButton("✓ Appliquer")
+        self._apply_btn.setFixedHeight(24)
+        self._apply_btn.setFixedWidth(95)
+        self._apply_btn.clicked.connect(self._send)
+        btn_row.addWidget(self._apply_btn)
+        lay.addLayout(btn_row)
+
+    def _reset(self):
+        for row in (self._kp, self._ki, self._kd):
+            row.set_value(0.0)
+        self._send()
+
+    def _send(self):
+        kp, ki, kd = self.gains()
+        self._status.setText(f"→  Kp={kp:.5f}  Ki={ki:.5f}  Kd={kd:.5f}")
+        self.apply_requested.emit(kp, ki, kd)
+
+    def gains(self) -> tuple[float, float, float]:
+        return self._kp.value(), self._ki.value(), self._kd.value()
+
+    def set_gains(self, kp: float, ki: float, kd: float):
+        self._kp.set_value(kp)
+        self._ki.set_value(ki)
+        self._kd.set_value(kd)
+        self._status.setText(f"→  Kp={kp:.5f}  Ki={ki:.5f}  Kd={kd:.5f}")
+
+
 # ── Signal chain live display ─────────────────────────────────────────────────
 
 class _SignalChainPanel(QGroupBox):
@@ -637,38 +748,39 @@ class _SignalChainPanel(QGroupBox):
             lay.addLayout(h)
             self._vals[key] = v
 
-        _section("── Entrées  PID Angle ──────────────")
-        _row("sp_pitch",  "Consigne pitch",  "°")
-        _row("pv_pitch",  "Pitch mesuré",    "°")
-        _row("err_pitch", "Erreur",          "°")
+        _section("── Boucle Vitesse (externe) ────────")
+        _row("sp_vel",        "Consigne vitesse", "rpm")
+        _row("vel_l",         "RPM gauche",       "rpm")
+        _row("vel_r",         "RPM droite",       "rpm")
+        _row("target_pitch",  "→ Pitch cible",    "°")
 
-        _section("── Sortie  PID Angle ───────────────")
-        _row("drive",     "Drive output",    "%")
+        _section("── Boucle Angle (interne) ──────────")
+        _row("pv_pitch",      "Pitch mesuré",     "°")
+        _row("err_pitch",     "Erreur",            "°")
+        _row("drive",         "Drive output",      "%")
 
-        _section("── Entrées  PID Moteur ────────────")
-        _row("rpm_l",     "RPM gauche",      "rpm")
-        _row("rpm_r",     "RPM droite",      "rpm")
+        _section("── Sorties moteurs ──────────────────")
+        _row("pwm_l",         "Gauche",            "%")
+        _row("pwm_r",         "Droite",            "%")
 
-        _section("── Sortie  PID Moteur ─────────────")
-        _row("pwm_l",     "PWM gauche",      "%")
-        _row("pwm_r",     "PWM droite",      "%")
-
-    def update_angle(self, pitch: float, drive_pct: float):
-        error = -pitch   # setpoint = 0°
-        self._vals["sp_pitch"].setText("0.0")
+    def update_angle(self, pitch: float, drive_pct: float, target_pitch: float = 0.0):
+        error = target_pitch - pitch
         self._vals["pv_pitch"].setText(f"{pitch:+.1f}")
         c = "#ef5350" if abs(pitch) > 30 else "#e0e0e0"
-        self._vals["pv_pitch"].setStyleSheet(
-            self._VAL_STYLE + f"color:{c};"
-        )
+        self._vals["pv_pitch"].setStyleSheet(self._VAL_STYLE + f"color:{c};")
         self._vals["err_pitch"].setText(f"{error:+.1f}")
         self._vals["drive"].setText(f"{drive_pct:+.1f}")
         c = "#ff7043" if abs(drive_pct) > 90 else "#e0e0e0"
         self._vals["drive"].setStyleSheet(self._VAL_STYLE + f"color:{c};")
+        c = "#ffd54f" if abs(target_pitch) > 5 else "#e0e0e0"
+        self._vals["target_pitch"].setText(f"{target_pitch:+.2f}")
+        self._vals["target_pitch"].setStyleSheet(self._VAL_STYLE + f"color:{c};")
 
-    def update_motor(self, pv_l: int, pv_r: int, pwm_l: float, pwm_r: float):
-        self._vals["rpm_l"].setText(f"{pv_l:+d}")
-        self._vals["rpm_r"].setText(f"{pv_r:+d}")
+    def update_velocity(self, sp_rpm: int, pv_l: int, pv_r: int,
+                        pwm_l: float, pwm_r: float):
+        self._vals["sp_vel"].setText(f"{sp_rpm:+d}")
+        self._vals["vel_l"].setText(f"{pv_l:+d}")
+        self._vals["vel_r"].setText(f"{pv_r:+d}")
         self._vals["pwm_l"].setText(f"{pwm_l * 100:+.1f}")
         self._vals["pwm_r"].setText(f"{pwm_r * 100:+.1f}")
 
@@ -879,6 +991,432 @@ class _KIdentPanel(QGroupBox):
         return K, se_K, r2, n, exc
 
 
+# ── Position control panel (tab) ─────────────────────────────────────────────
+
+class _PositionPanel(QWidget):
+    """Full position control tab: PID gains, mode selector, live plot."""
+
+    gains_changed = Signal(float, float, float)   # Kp, Ki, Kd → loop_id=3
+    pos_sp_cmd    = Signal(float)                 # SET_POS_SP(sp_cm)
+    pos_traj_cmd  = Signal(int, float, float)     # SET_POS_TRAJ(mode, ampl, period)
+    spin_cmd      = Signal(bool, float, float)    # SPIN_CTRL(enable, interval_s, yaw_force)
+    vel_mode_cmd  = Signal()                      # return to velocity mode
+
+    _NPTS = 6000   # ~5 min at 20 Hz
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._t_pos:  deque[float] = deque(maxlen=self._NPTS)
+        self._pos_cm: deque[float] = deque(maxlen=self._NPTS)
+        self._sp_cm:  deque[float] = deque(maxlen=self._NPTS)
+        self._t0: float | None = None
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(6)
+        splitter.addWidget(self._build_controls())
+        splitter.addWidget(self._build_plot())
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([320, 700])
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(splitter)
+
+        self._plot_timer = QTimer(self, interval=100)
+        self._plot_timer.timeout.connect(self._refresh_plot)
+        self._plot_timer.start()
+
+    # ── Controls ──────────────────────────────────────────────────────────────
+
+    def _build_controls(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumWidth(290)
+        scroll.setMaximumWidth(380)
+
+        container = QWidget()
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setSpacing(8)
+
+        # ── PID gains ─────────────────────────────────────────────────────────
+        pid_box = QGroupBox("Gains — Position PID  (boucle n°3)")
+        pid_box.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
+        pid_lay = QVBoxLayout(pid_box)
+        pid_lay.setContentsMargins(8, 14, 8, 8)
+        pid_lay.setSpacing(4)
+
+        self._pos_kp = _PidRow("Kp", 2.000)
+        self._pos_ki = _PidRow("Ki", 0.500)
+        self._pos_kd = _PidRow("Kd", 0.500)
+        self._pos_kp.set_value(0.5)
+
+        self._gains_debounce = QTimer(singleShot=True, interval=400)
+        self._gains_debounce.timeout.connect(self._emit_gains)
+        for row in (self._pos_kp, self._pos_ki, self._pos_kd):
+            pid_lay.addWidget(row)
+            row.value_changed.connect(lambda _: self._gains_debounce.start())
+
+        self._gains_status = QLabel("—")
+        self._gains_status.setStyleSheet(
+            "color:#90a4ae;font-size:10px;font-family:Consolas;"
+        )
+        pid_lay.addWidget(self._gains_status)
+
+        pid_btns = QHBoxLayout()
+        pid_btns.setSpacing(6)
+        rst = QPushButton("Reset (0,0,0)")
+        rst.setFixedHeight(24)
+        rst.clicked.connect(self._reset_gains)
+        pid_btns.addWidget(rst)
+        apl = QPushButton("✓ Appliquer")
+        apl.setFixedHeight(24)
+        apl.setFixedWidth(95)
+        apl.clicked.connect(self._emit_gains)
+        pid_btns.addWidget(apl)
+        pid_lay.addLayout(pid_btns)
+        lay.addWidget(pid_box)
+
+        # ── Mode & Consigne ────────────────────────────────────────────────────
+        mode_box = QGroupBox("Mode & Consigne")
+        mode_box.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
+        mode_lay = QVBoxLayout(mode_box)
+        mode_lay.setContentsMargins(8, 14, 8, 8)
+        mode_lay.setSpacing(6)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Mode :"))
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem("Hold",       userData=_TRAJ_HOLD)
+        self._mode_combo.addItem("Sinusoïde",  userData=_TRAJ_SINUS)
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        mode_row.addWidget(self._mode_combo)
+        mode_row.addStretch()
+        mode_lay.addLayout(mode_row)
+
+        # Hold section
+        self._hold_widget = QWidget()
+        hold_lay = QVBoxLayout(self._hold_widget)
+        hold_lay.setContentsMargins(0, 0, 0, 0)
+        hold_lay.setSpacing(4)
+
+        h_row = QHBoxLayout()
+        h_row.addWidget(QLabel("Cible :"))
+        self._hold_spin = QDoubleSpinBox()
+        self._hold_spin.setRange(-50.0, 50.0)
+        self._hold_spin.setDecimals(1)
+        self._hold_spin.setSingleStep(1.0)
+        self._hold_spin.setValue(0.0)
+        self._hold_spin.setSuffix(" cm")
+        self._hold_spin.setFixedWidth(90)
+        self._hold_spin.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
+        h_row.addWidget(self._hold_spin)
+        h_row.addStretch()
+        hold_lay.addLayout(h_row)
+
+        self._hold_btn = QPushButton("▶ Activer Hold")
+        self._hold_btn.setFixedHeight(28)
+        self._hold_btn.clicked.connect(self._send_hold)
+        hold_lay.addWidget(self._hold_btn)
+        mode_lay.addWidget(self._hold_widget)
+
+        # Sinus section
+        self._sinus_widget = QWidget()
+        sinus_lay = QVBoxLayout(self._sinus_widget)
+        sinus_lay.setContentsMargins(0, 0, 0, 0)
+        sinus_lay.setSpacing(4)
+
+        a_row = QHBoxLayout()
+        a_row.addWidget(QLabel("Amplitude :"))
+        self._sinus_ampl = QDoubleSpinBox()
+        self._sinus_ampl.setRange(1.0, 50.0)
+        self._sinus_ampl.setDecimals(1)
+        self._sinus_ampl.setSingleStep(1.0)
+        self._sinus_ampl.setValue(10.0)
+        self._sinus_ampl.setSuffix(" cm")
+        self._sinus_ampl.setFixedWidth(90)
+        a_row.addWidget(self._sinus_ampl)
+        a_row.addStretch()
+        sinus_lay.addLayout(a_row)
+
+        t_row = QHBoxLayout()
+        t_row.addWidget(QLabel("Période :"))
+        self._sinus_period = QDoubleSpinBox()
+        self._sinus_period.setRange(0.5, 30.0)
+        self._sinus_period.setDecimals(1)
+        self._sinus_period.setSingleStep(0.5)
+        self._sinus_period.setValue(4.0)
+        self._sinus_period.setSuffix(" s")
+        self._sinus_period.setFixedWidth(90)
+        t_row.addWidget(self._sinus_period)
+        t_row.addStretch()
+        sinus_lay.addLayout(t_row)
+
+        self._sinus_btn = QPushButton("▶ Démarrer sinusoïde")
+        self._sinus_btn.setFixedHeight(28)
+        self._sinus_btn.setCheckable(True)
+        self._sinus_btn.clicked.connect(self._on_sinus_toggle)
+        sinus_lay.addWidget(self._sinus_btn)
+        mode_lay.addWidget(self._sinus_widget)
+        self._sinus_widget.setVisible(False)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        mode_lay.addWidget(sep)
+
+        vel_btn = QPushButton("↩ Retour Mode Vitesse")
+        vel_btn.setFixedHeight(28)
+        vel_btn.clicked.connect(self._on_vel_mode)
+        mode_lay.addWidget(vel_btn)
+        lay.addWidget(mode_box)
+
+        # ── État temps réel ────────────────────────────────────────────────────
+        st_box = QGroupBox("État temps réel")
+        st_box.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
+        st_lay = QVBoxLayout(st_box)
+        st_lay.setContentsMargins(8, 14, 8, 8)
+        st_lay.setSpacing(2)
+
+        _V = "color:#e0e0e0;font-size:12px;font-family:Consolas;font-weight:bold;"
+        _L = "color:#78909c;font-size:11px;font-family:Consolas;"
+        _U = "color:#546e7a;font-size:11px;font-family:Consolas;"
+
+        self._sv: dict[str, QLabel] = {}
+
+        def _srow(key: str, label: str, unit: str):
+            h = QHBoxLayout()
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(4)
+            l = QLabel(label)
+            l.setStyleSheet(_L)
+            l.setFixedWidth(110)
+            v = QLabel("—")
+            v.setStyleSheet(_V)
+            v.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            u = QLabel(unit)
+            u.setStyleSheet(_U)
+            u.setFixedWidth(32)
+            h.addWidget(l)
+            h.addWidget(v, stretch=1)
+            h.addWidget(u)
+            st_lay.addLayout(h)
+            self._sv[key] = v
+
+        _srow("mode",   "Mode",       "")
+        _srow("pos",    "Position",   "cm")
+        _srow("sp",     "Consigne",   "cm")
+        _srow("err",    "Erreur",     "cm")
+        _srow("vel_sp", "Vel SP",     "rpm")
+        lay.addWidget(st_box)
+
+        # ── Cas 4 — Auto-spin ─────────────────────────────────────────────────
+        spin_box = QGroupBox("Cas 4 — Tour automatique")
+        spin_box.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
+        spin_lay = QVBoxLayout(spin_box)
+        spin_lay.setContentsMargins(8, 14, 8, 8)
+        spin_lay.setSpacing(6)
+
+        iv_row = QHBoxLayout()
+        iv_row.addWidget(QLabel("Intervalle :"))
+        self._spin_interval = QDoubleSpinBox()
+        self._spin_interval.setRange(5.0, 300.0)
+        self._spin_interval.setDecimals(0)
+        self._spin_interval.setSingleStep(5.0)
+        self._spin_interval.setValue(60.0)
+        self._spin_interval.setSuffix(" s")
+        self._spin_interval.setFixedWidth(80)
+        iv_row.addWidget(self._spin_interval)
+        iv_row.addStretch()
+        spin_lay.addLayout(iv_row)
+
+        yf_row = QHBoxLayout()
+        yf_row.addWidget(QLabel("Force lacet :"))
+        self._spin_yaw = QDoubleSpinBox()
+        self._spin_yaw.setRange(0.10, 0.50)
+        self._spin_yaw.setDecimals(2)
+        self._spin_yaw.setSingleStep(0.05)
+        self._spin_yaw.setValue(0.40)
+        self._spin_yaw.setFixedWidth(80)
+        yf_row.addWidget(self._spin_yaw)
+        yf_row.addStretch()
+        spin_lay.addLayout(yf_row)
+
+        self._spin_btn = QPushButton("▶ Activer tour auto")
+        self._spin_btn.setFixedHeight(28)
+        self._spin_btn.setCheckable(True)
+        self._spin_btn.clicked.connect(self._on_spin_toggle)
+        spin_lay.addWidget(self._spin_btn)
+
+        self._spin_status = QLabel("—")
+        self._spin_status.setStyleSheet(
+            "color:#90a4ae;font-size:10px;font-family:Consolas;"
+        )
+        spin_lay.addWidget(self._spin_status)
+        lay.addWidget(spin_box)
+
+        lay.addStretch()
+
+        scroll.setWidget(container)
+        return scroll
+
+    # ── Plot ──────────────────────────────────────────────────────────────────
+
+    def _build_plot(self) -> pg.PlotWidget:
+        pw = pg.PlotWidget(title="Position  (cm)")
+        pw.showGrid(x=True, y=True, alpha=0.25)
+        pw.setLabel("left", "position (cm)")
+        pw.setLabel("bottom", "temps (s)")
+        pw.addLegend(offset=(10, 10))
+        pw.addLine(y=0, pen=pg.mkPen("#546e7a", width=1,
+                                     style=Qt.PenStyle.DashLine))
+
+        self._c_sp  = pw.plot(pen=pg.mkPen("#42a5f5", width=2,
+                                           style=Qt.PenStyle.DashLine),
+                              name="consigne")
+        self._c_pos = pw.plot(pen=pg.mkPen("#ef5350", width=2),
+                              name="position")
+
+        for c in (self._c_sp, self._c_pos):
+            c.setDownsampling(auto=True, method="subsample")
+            c.setClipToView(True)
+
+        self._pw_pos = pw
+        return pw
+
+    # ── Slots & helpers ───────────────────────────────────────────────────────
+
+    def _on_mode_changed(self, _idx: int):
+        mode = self._mode_combo.currentData()
+        self._hold_widget.setVisible(mode == _TRAJ_HOLD)
+        self._sinus_widget.setVisible(mode == _TRAJ_SINUS)
+        if mode != _TRAJ_SINUS and self._sinus_btn.isChecked():
+            self._sinus_btn.setChecked(False)
+            self._sinus_btn.setText("▶ Démarrer sinusoïde")
+
+    def _send_hold(self):
+        self.pos_sp_cmd.emit(self._hold_spin.value())
+
+    def _on_sinus_toggle(self, checked: bool):
+        if checked:
+            self.pos_traj_cmd.emit(
+                _TRAJ_SINUS,
+                self._sinus_ampl.value(),
+                self._sinus_period.value(),
+            )
+            self._sinus_btn.setText("⏹ Stop sinusoïde")
+        else:
+            self.pos_sp_cmd.emit(0.0)   # hold at current origin
+            self._sinus_btn.setText("▶ Démarrer sinusoïde")
+
+    def _on_spin_toggle(self, checked: bool):
+        if checked:
+            self._spin_btn.setText("⏹ Stop tour auto")
+            self._spin_status.setText("En attente du premier tour...")
+            self.spin_cmd.emit(True, self._spin_interval.value(), self._spin_yaw.value())
+        else:
+            self._spin_btn.setText("▶ Activer tour auto")
+            self._spin_status.setText("Désactivé")
+            self.spin_cmd.emit(False, 60.0, 0.4)
+
+    def _on_vel_mode(self):
+        if self._sinus_btn.isChecked():
+            self._sinus_btn.setChecked(False)
+            self._sinus_btn.setText("▶ Démarrer sinusoïde")
+        if self._spin_btn.isChecked():
+            self._spin_btn.setChecked(False)
+            self._spin_btn.setText("▶ Activer tour auto")
+            self._spin_status.setText("Désactivé")
+        self.vel_mode_cmd.emit()
+
+    def _emit_gains(self):
+        kp, ki, kd = self.gains()
+        self._gains_status.setText(f"→  Kp={kp:.4f}  Ki={ki:.4f}  Kd={kd:.4f}")
+        self.gains_changed.emit(kp, ki, kd)
+
+    def _reset_gains(self):
+        for row in (self._pos_kp, self._pos_ki, self._pos_kd):
+            row.set_value(0.0)
+        self._emit_gains()
+
+    def gains(self) -> tuple[float, float, float]:
+        return self._pos_kp.value(), self._pos_ki.value(), self._pos_kd.value()
+
+    def set_gains(self, kp: float, ki: float, kd: float):
+        self._pos_kp.set_value(kp)
+        self._pos_ki.set_value(ki)
+        self._pos_kd.set_value(kd)
+        self._gains_status.setText(f"→  Kp={kp:.4f}  Ki={ki:.4f}  Kd={kd:.4f}")
+
+    def on_pos_sample(self, pos_cm: float, sp_cm: float, vel_sp_rpm: float,
+                      ctrl_mode: int, traj_mode: int):
+        now = _time.monotonic()
+        if self._t0 is None:
+            self._t0 = now
+        self._t_pos.append(now - self._t0)
+        self._pos_cm.append(pos_cm)
+        self._sp_cm.append(sp_cm)
+
+        err = sp_cm - pos_cm
+        mode_str = {
+            (0, 0): "VELOCITY",
+            (1, 0): "HOLD",
+            (1, 1): "SINUS",
+            (3, 0): "SPIN – attente",
+            (3, 1): "SPIN – rotation",
+        }.get((ctrl_mode, traj_mode), "—")
+        c_mode = {
+            "VELOCITY":      "#78909c",
+            "HOLD":          "#42a5f5",
+            "SINUS":         "#66bb6a",
+            "SPIN – attente":"#ffd54f",
+            "SPIN – rotation":"#ff7043",
+        }.get(mode_str, "#e0e0e0")
+
+        # Update spin button and status label to reflect firmware state
+        if ctrl_mode == _CTRL_SPIN and not self._spin_btn.isChecked():
+            self._spin_btn.setChecked(True)
+            self._spin_btn.setText("⏹ Stop tour auto")
+        if ctrl_mode == _CTRL_SPIN:
+            if traj_mode == 1:
+                self._spin_status.setText("Rotation en cours...")
+            else:
+                self._spin_status.setText("En attente du prochain tour")
+        _V = "font-size:12px;font-family:Consolas;font-weight:bold;"
+        self._sv["mode"].setText(mode_str)
+        self._sv["mode"].setStyleSheet(f"color:{c_mode};" + _V)
+        self._sv["pos"].setText(f"{pos_cm:+.1f}")
+        self._sv["sp"].setText(f"{sp_cm:+.1f}")
+        self._sv["err"].setText(f"{err:+.1f}")
+        c_err = ("#ef5350" if abs(err) > 10
+                 else "#ffd54f" if abs(err) > 3 else "#e0e0e0")
+        self._sv["err"].setStyleSheet(f"color:{c_err};" + _V)
+        self._sv["vel_sp"].setText(f"{vel_sp_rpm:+.1f}")
+
+    def _refresh_plot(self):
+        n = len(self._t_pos)
+        if n < 2:
+            return
+        t   = np.fromiter(self._t_pos, float, n)
+        pos = np.fromiter(self._pos_cm, float, n)
+        sp  = np.fromiter(self._sp_cm,  float, n)
+        t_now = t[-1]
+        mask  = t >= (t_now - 30.0)   # 30 s window
+        self._c_pos.setData(x=t[mask], y=pos[mask])
+        self._c_sp.setData(x=t[mask],  y=sp[mask])
+        self._pw_pos.setXRange(t_now - 30.0, t_now, padding=0)
+
+    def clear(self):
+        self._t_pos.clear()
+        self._pos_cm.clear()
+        self._sp_cm.clear()
+        self._t0 = None
+        self._c_pos.setData([], [])
+        self._c_sp.setData([], [])
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _vsep() -> QFrame:
@@ -1032,6 +1570,16 @@ class CbcTuner(QMainWindow):
         self._right_tabs.addTab(self._sim_panel,          "Simulation")
         self._right_tabs.addTab(self._motor_calib_panel,  "Calib moteurs")
 
+        self._pos_panel = _PositionPanel()
+        self._pos_panel.gains_changed.connect(
+            lambda kp, ki, kd: self._send_gains(3, kp, ki, kd)
+        )
+        self._pos_panel.pos_sp_cmd.connect(self._send_pos_sp)
+        self._pos_panel.pos_traj_cmd.connect(self._send_pos_traj)
+        self._pos_panel.spin_cmd.connect(self._send_spin)
+        self._pos_panel.vel_mode_cmd.connect(lambda: self._send_sp(0))
+        self._right_tabs.addTab(self._pos_panel, "Position")
+
         self._ident_k_panel.send_sp.connect(self._send_sp)
         self._ident_td_panel.send_sp.connect(self._send_sp)
         self._motor_calib_panel.start_calib.connect(self._send_motor_calib)
@@ -1062,6 +1610,10 @@ class CbcTuner(QMainWindow):
             lambda kp, ki, kd: self._send_gains(0, kp, ki, kd)
         )
         lay.addWidget(self._angle_panel)
+
+        self._velocity_panel = _VelocityPidPanel()
+        self._velocity_panel.apply_requested.connect(self._on_vel_gains_changed)
+        lay.addWidget(self._velocity_panel)
 
         self._chain_panel = _SignalChainPanel()
         lay.addWidget(self._chain_panel)
@@ -1127,12 +1679,24 @@ class CbcTuner(QMainWindow):
         else:
             self._main_splitter.setSizes([300, 1000])
 
-        # Restore saved angle PID gains
-        kp = float(self._settings.value("gains/angle_kp", 0.0))
+        # Restore saved angle PID gains (default = last known good values)
+        kp = float(self._settings.value("gains/angle_kp", 0.241))
         ki = float(self._settings.value("gains/angle_ki", 0.0))
-        kd = float(self._settings.value("gains/angle_kd", 0.0))
-        if kp or ki or kd:
-            self._angle_panel.set_gains(kp, ki, kd)
+        kd = float(self._settings.value("gains/angle_kd", 0.00041))
+        self._angle_panel.set_gains(kp, ki, kd)
+
+        # Restore saved velocity PID gains
+        vkp = float(self._settings.value("gains/vel_kp", 0.0))
+        vki = float(self._settings.value("gains/vel_ki", 0.0))
+        vkd = float(self._settings.value("gains/vel_kd", 0.0))
+        if vkp or vki or vkd:
+            self._velocity_panel.set_gains(vkp, vki, vkd)
+
+        # Restore saved position PID gains
+        pkp = float(self._settings.value("gains/pos_kp", 0.5))
+        pki = float(self._settings.value("gains/pos_ki", 0.0))
+        pkd = float(self._settings.value("gains/pos_kd", 0.0))
+        self._pos_panel.set_gains(pkp, pki, pkd)
 
     def _save_layout(self):
         self._settings.setValue("geometry",       self.saveGeometry())
@@ -1140,6 +1704,18 @@ class CbcTuner(QMainWindow):
         self._settings.setValue("time_window_s",  self._win_spin.value())
         self._settings.setValue("last_port",      self._port_combo.currentData() or "")
         self._settings.setValue("last_baud",      self._baud_combo.currentText())
+        kp, ki, kd = self._angle_panel.gains()
+        self._settings.setValue("gains/angle_kp", kp)
+        self._settings.setValue("gains/angle_ki", ki)
+        self._settings.setValue("gains/angle_kd", kd)
+        vkp, vki, vkd = self._velocity_panel.gains()
+        self._settings.setValue("gains/vel_kp", vkp)
+        self._settings.setValue("gains/vel_ki", vki)
+        self._settings.setValue("gains/vel_kd", vkd)
+        pkp, pki, pkd = self._pos_panel.gains()
+        self._settings.setValue("gains/pos_kp", pkp)
+        self._settings.setValue("gains/pos_ki", pki)
+        self._settings.setValue("gains/pos_kd", pkd)
 
     def closeEvent(self, event):
         self._save_layout()
@@ -1165,11 +1741,13 @@ class CbcTuner(QMainWindow):
         self._reader.imu_sample.connect(self._on_imu)
         self._reader.pid_sample.connect(self._on_pid)
         self._reader.calib_sample.connect(self._motor_calib_panel.on_calib_packet)
+        self._reader.pos_sample.connect(self._on_pos)
         self._reader.rx_bytes.connect(self._on_rx)
         self._reader.error.connect(self._on_err)
         self._reader.start()
-        self._state.connected  = True
-        self._state.send_gains = lambda kp, ki, kd: self._send_gains(0, kp, ki, kd)
+        self._state.connected      = True
+        self._state.send_gains     = lambda kp, ki, kd: self._send_gains(0, kp, ki, kd)
+        self._state.send_vel_gains = lambda kp, ki, kd: self._send_gains(1, kp, ki, kd)
         self._connect_btn.setText("Déconnecter")
         self._stream_btn.setEnabled(True)
         self._port_combo.setEnabled(False)
@@ -1179,6 +1757,7 @@ class CbcTuner(QMainWindow):
         self._stream_btn.setText("⏹ Stop")
         self._send_stream(True)
         QTimer.singleShot(200, self._send_saved_gains)
+        QTimer.singleShot(300, self._send_saved_vel_gains)
 
     def _disconnect(self):
         self._send_stream(False)
@@ -1192,8 +1771,9 @@ class CbcTuner(QMainWindow):
             except Exception:
                 pass
             self._ser = None
-        self._state.connected  = False
-        self._state.send_gains = None
+        self._state.connected      = False
+        self._state.send_gains     = None
+        self._state.send_vel_gains = None
         self._connect_btn.setText("Connecter")
         self._stream_btn.setChecked(False)
         self._stream_btn.setEnabled(False)
@@ -1243,6 +1823,38 @@ class CbcTuner(QMainWindow):
         kp, ki, kd = self._angle_panel.gains()
         self._send_gains(0, kp, ki, kd)
 
+    def _send_saved_vel_gains(self):
+        kp, ki, kd = self._velocity_panel.gains()
+        self._send_gains(1, kp, ki, kd)
+
+    def _on_vel_gains_changed(self, kp: float, ki: float, kd: float):
+        self._state.vel_kp = kp
+        self._state.vel_ki = ki
+        self._state.vel_kd = kd
+        self._send_gains(1, kp, ki, kd)
+
+    def _on_pos(self, pos_cm: float, sp_cm: float, vel_sp_rpm: float,
+                ctrl_mode: int, traj_mode: int):
+        self._pos_panel.on_pos_sample(pos_cm, sp_cm, vel_sp_rpm, ctrl_mode, traj_mode)
+
+    def _send_pos_sp(self, sp_cm: float):
+        if not self._reader:
+            return
+        self._reader.write(_pos_sp_frame(sp_cm, self._tx_seq))
+        self._tx_seq = (self._tx_seq + 1) & 0xFF
+
+    def _send_pos_traj(self, mode: int, amplitude_cm: float, period_s: float):
+        if not self._reader:
+            return
+        self._reader.write(_pos_traj_frame(mode, amplitude_cm, period_s, self._tx_seq))
+        self._tx_seq = (self._tx_seq + 1) & 0xFF
+
+    def _send_spin(self, enable: bool, interval_s: float, yaw_force: float):
+        if not self._reader:
+            return
+        self._reader.write(_spin_frame(enable, interval_s, yaw_force, self._tx_seq))
+        self._tx_seq = (self._tx_seq + 1) & 0xFF
+
     # ── Data slots ────────────────────────────────────────────────────────────
 
     def _on_plan_ready(
@@ -1272,21 +1884,23 @@ class CbcTuner(QMainWindow):
         s.drive.append(drive_pct / 100.0)
 
         kp, ki, kd = self._state.kp, self._state.ki, self._state.kd
-        error = -pitch  # setpoint = 0°
+        target_pitch = self._state.target_pitch
+        error = target_pitch - pitch
 
         # Integral avec anti-windup ±0.5 (cohérent avec CBC_Init integral limits)
         self._i_accum = max(-0.5, min(0.5, self._i_accum + error * dt))
 
-        # d(error)/dt = -d(pitch)/dt ≈ -pitch_rate  (pitch_rate = −Gx déjà négatif)
+        # d(error)/dt = -d(pitch)/dt ≈ -pitch_rate
         s.pid_p.append(kp * error)
         s.pid_i.append(ki * self._i_accum)
         s.pid_d.append(kd * (-pitch_rate))
 
         self._pkt_cnt += 1
         self._pkt_label.setText(f"PKT: {self._pkt_cnt}")
-        self._chain_panel.update_angle(pitch, drive_pct)
+        self._chain_panel.update_angle(pitch, drive_pct, target_pitch)
 
-    def _on_pid(self, pv_l: int, pv_r: int, pwm_l: float, pwm_r: float, sp_rpm: int):
+    def _on_pid(self, pv_l: int, pv_r: int, pwm_l: float, pwm_r: float,
+                sp_rpm: int, target_pitch_deg: float):
         self._ident_k_panel.feed_motor(pv_l, pv_r, pwm_l, pwm_r, sp_rpm)
         self._ident_td_panel.feed_motor(pv_l, pv_r, pwm_l, pwm_r, sp_rpm)
         now = _time.monotonic()
@@ -1301,7 +1915,9 @@ class CbcTuner(QMainWindow):
         s.rpm_r = pv_r
         s.pwm_l = pwm_l
         s.pwm_r = pwm_r
-        self._chain_panel.update_motor(pv_l, pv_r, pwm_l, pwm_r)
+        s.target_pitch = target_pitch_deg
+        s.vel_avg = (pv_l + pv_r) / 2.0
+        self._chain_panel.update_velocity(sp_rpm, pv_l, pv_r, pwm_l, pwm_r)
 
     def _on_rx(self, total: int):
         self._rx_led.flash()

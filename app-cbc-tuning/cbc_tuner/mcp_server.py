@@ -47,8 +47,15 @@ class TunerState:
     kp: float    = 0.0
     ki: float    = 0.0
     kd: float    = 0.0
+    # Cascade velocity loop
+    vel_kp: float      = 0.0
+    vel_ki: float      = 0.0
+    vel_kd: float      = 0.0
+    target_pitch: float = 0.0   # outer loop output → inner setpoint (°)
+    vel_avg: float     = 0.0    # average wheel velocity (RPM)
     connected: bool = False
     send_gains: Callable[[float, float, float], None] | None = None
+    send_vel_gains: Callable[[float, float, float], None] | None = None
 
 
 # ── Serveur HTTP IPC ──────────────────────────────────────────────────────────
@@ -85,12 +92,15 @@ class StateServer:
                 n  = len(state.t)
                 sl = slice(max(0, n - _SNAPSHOT_MAX), n)
                 data = {
-                    "connected":  state.connected,
-                    "gains":      {"kp": state.kp, "ki": state.ki, "kd": state.kd},
-                    "rpm_l":      state.rpm_l,
-                    "rpm_r":      state.rpm_r,
-                    "pwm_l":      state.pwm_l,
-                    "pwm_r":      state.pwm_r,
+                    "connected":    state.connected,
+                    "gains":        {"kp": state.kp, "ki": state.ki, "kd": state.kd},
+                    "vel_gains":    {"kp": state.vel_kp, "ki": state.vel_ki, "kd": state.vel_kd},
+                    "rpm_l":        state.rpm_l,
+                    "rpm_r":        state.rpm_r,
+                    "pwm_l":        state.pwm_l,
+                    "pwm_r":        state.pwm_r,
+                    "target_pitch": state.target_pitch,
+                    "vel_avg":      state.vel_avg,
                     "t":          list(state.t)[sl],
                     "pitch":      list(state.pitch)[sl],
                     "pitch_rate": list(state.pitch_rate)[sl],
@@ -101,27 +111,46 @@ class StateServer:
                 }
                 self._send_json(json.dumps(data).encode())
 
-            def do_POST(self) -> None:  # noqa: N802
-                if self.path != "/gains":
-                    self._send_json(b'{"error":"not found"}', 404)
-                    return
+            def _parse_gains_body(self) -> tuple[float, float, float] | None:
                 length = int(self.headers.get("Content-Length", 0))
                 try:
                     body = json.loads(self.rfile.read(length))
-                    kp   = float(body["kp"])
-                    ki   = float(body["ki"])
-                    kd   = float(body["kd"])
+                    return float(body["kp"]), float(body["ki"]), float(body["kd"])
                 except (KeyError, ValueError, json.JSONDecodeError) as exc:
                     self._send_json(json.dumps({"error": str(exc)}).encode(), 400)
-                    return
-                if state.connected and state.send_gains is not None:
-                    state.send_gains(kp, ki, kd)
-                    self._send_json(b'{"ok":true}')
+                    return None
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path == "/gains":
+                    gains = self._parse_gains_body()
+                    if gains is None:
+                        return
+                    kp, ki, kd = gains
+                    if state.connected and state.send_gains is not None:
+                        state.send_gains(kp, ki, kd)
+                        self._send_json(b'{"ok":true}')
+                    else:
+                        msg = json.dumps(
+                            {"error": "Non connecté. Ouvrir la connexion dans l'appli d'abord."}
+                        ).encode()
+                        self._send_json(msg, 503)
+
+                elif self.path == "/vel_gains":
+                    gains = self._parse_gains_body()
+                    if gains is None:
+                        return
+                    kp, ki, kd = gains
+                    if state.connected and state.send_vel_gains is not None:
+                        state.send_vel_gains(kp, ki, kd)
+                        self._send_json(b'{"ok":true}')
+                    else:
+                        msg = json.dumps(
+                            {"error": "Non connecté. Ouvrir la connexion dans l'appli d'abord."}
+                        ).encode()
+                        self._send_json(msg, 503)
+
                 else:
-                    msg = json.dumps(
-                        {"error": "Non connecté. Ouvrir la connexion dans l'appli d'abord."}
-                    ).encode()
-                    self._send_json(msg, 503)
+                    self._send_json(b'{"error":"not found"}', 404)
 
         try:
             self._server = HTTPServer(("127.0.0.1", port), _Handler)

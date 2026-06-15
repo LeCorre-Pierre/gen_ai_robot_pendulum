@@ -1,8 +1,16 @@
 /*
  * task_comms.c — VCP telemetry + PID tuning command handler
  *
- * Uplink  (STM32 → PC) : VCP_TYPE_TELEMETRY_PID at configurable rate (1–100 Hz)
- * Downlink (PC → STM32) : SET_GAINS, SET_SP, STREAM_CTRL, MOTOR_CTRL
+ * Uplink  (STM32 → PC) :
+ *   VCP_TYPE_TELEMETRY_IMU (0x11) : pitch, drive, raw IMU — at configurable rate
+ *   VCP_TYPE_TELEMETRY_PID (0x10) : vel setpoint/measured, target_pitch, motor outputs
+ *
+ * Downlink (PC → STM32) :
+ *   SET_BALANCE_GAINS (0x24) : loop_id=0 angle / 1 velocity / 2 yaw
+ *   SET_SP            (0x21) : velocity setpoint in RPM → Task_control_SetVelocitySetpoint
+ *   STREAM_CTRL       (0x22) : enable/disable telemetry, set rate
+ *   MOTOR_CTRL        (0x23) : coast / brake / enable
+ *   MOTOR_CALIB       (0x25) : start/abort dead-zone calibration sequence
  *
  * UART RX is byte-at-a-time interrupt-driven into a 256-byte ring buffer.
  * Task polls the buffer every 2 ms, assembles frames, dispatches commands.
@@ -29,22 +37,16 @@
 #define STREAM_RATE_DEFAULT_HZ  50U
 #define STREAM_RATE_MAX_HZ     100U
 
-/* ── Shared state (written by comms task, read by display task) ─────────── */
-static volatile uint8_t  s_stream_active    = 0U;
-static volatile uint16_t s_stream_rate_hz   = STREAM_RATE_DEFAULT_HZ;
-static volatile uint32_t s_last_cmd_tick    = 0U;
-static volatile int16_t  s_vcp_sp_rpm       = 0;
-
-/* RPM override: SET_SP command active within the last 500 ms */
-#define RPM_OVERRIDE_TIMEOUT_MS  500U
-static volatile uint8_t  s_rpm_override_active = 0U;
-static volatile uint32_t s_rpm_override_ts     = 0U;
+/* ── Shared state ────────────────────────────────────────────────────────── */
+static volatile uint8_t  s_stream_active  = 0U;
+static volatile uint16_t s_stream_rate_hz = STREAM_RATE_DEFAULT_HZ;
+static volatile uint32_t s_last_cmd_tick  = 0U;
 
 /* ── UART RX ring buffer (ISR → task) ───────────────────────────────────── */
 static volatile uint8_t  s_rx_ring[RX_RING_SIZE];
-static volatile uint16_t s_rx_head = 0U;   /* written by ISR  */
-static volatile uint16_t s_rx_tail = 0U;   /* read   by task  */
-static          uint8_t  s_rx_byte;         /* HAL_UART_Receive_IT target */
+static volatile uint16_t s_rx_head = 0U;
+static volatile uint16_t s_rx_tail = 0U;
+static          uint8_t  s_rx_byte;
 
 /* ── TX sequence counter ────────────────────────────────────────────────── */
 static uint8_t s_tx_seq = 0U;
@@ -53,10 +55,11 @@ static uint8_t s_tx_seq = 0U;
 static void CommsTask(void *pvParameters);
 static void Comms_ProcessRx(void);
 static void Comms_Dispatch(const VcpPacket_t *pkt);
-static void Comms_SendTelemetry(void);
-static void Comms_SendAck(uint8_t cmd_type, uint8_t status);
-static void Comms_SendImuTelemetry(void);
+static void Comms_SendPidTelemetry(const ControlState_t *cs);
+static void Comms_SendImuTelemetry(const ControlState_t *cs);
 static void Comms_SendCalibTelemetry(const ControlState_t *cs);
+static void Comms_SendPosTelemetry(const ControlState_t *cs);
+static void Comms_SendAck(uint8_t cmd_type, uint8_t status);
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
@@ -73,22 +76,10 @@ void VCP_NotifyRxByte(uint8_t byte)
         s_rx_ring[s_rx_head] = byte;
         s_rx_head = next;
     }
-    /* If ring is full the byte is silently dropped */
 }
 
-uint8_t VCP_IsStreamActive(void)   { return s_stream_active; }
+uint8_t  VCP_IsStreamActive(void)  { return s_stream_active; }
 uint32_t VCP_GetLastCmdTick(void)  { return s_last_cmd_tick; }
-int16_t  VCP_GetSetpointRpm(void)  { return s_vcp_sp_rpm; }
-
-uint8_t VCP_IsRpmOverrideActive(void)
-{
-    if (!s_rpm_override_active) { return 0U; }
-    if ((HAL_GetTick() - s_rpm_override_ts) > RPM_OVERRIDE_TIMEOUT_MS) {
-        s_rpm_override_active = 0U;
-        return 0U;
-    }
-    return 1U;
-}
 
 void VCP_SetStreamActive(uint8_t enable)
 {
@@ -102,7 +93,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     extern UART_HandleTypeDef huart1;
     if (huart->Instance == USART1) {
         VCP_NotifyRxByte(s_rx_byte);
-        HAL_UART_Receive_IT(&huart1, &s_rx_byte, 1U);   /* re-arm */
+        HAL_UART_Receive_IT(&huart1, &s_rx_byte, 1U);
     }
 }
 
@@ -151,7 +142,6 @@ static void Comms_ProcessRx(void)
                 frame_total = 0U;
                 break;
             }
-            /* Once we have the 8-byte header, compute expected total length */
             if (frame_pos == 8U && frame_total == 0U) {
                 uint16_t plen = (uint16_t)frame_buf[6]
                               | ((uint16_t)frame_buf[7] << 8);
@@ -160,11 +150,9 @@ static void Comms_ProcessRx(void)
                     frame_pos   = 0U;
                     frame_total = 0U;
                 } else {
-                    /* SOF(2) + HDR(6) + PAYLOAD(plen) + CRC(2) + EOF(1) */
                     frame_total = 11U + plen;
                 }
             }
-            /* Complete frame? */
             if (frame_total > 0U && frame_pos == frame_total) {
                 VcpPacket_t pkt;
                 if (VcpProtocol_Parse(frame_buf, frame_pos, &pkt) == 0) {
@@ -205,10 +193,7 @@ static void Comms_Dispatch(const VcpPacket_t *pkt)
         if (pkt->len < (uint16_t)sizeof(VcpCmdSetSp_t)) { break; }
         VcpCmdSetSp_t cmd;
         memcpy(&cmd, pkt->payload, sizeof(cmd));
-        s_vcp_sp_rpm          = cmd.sp_rpm;
-        s_rpm_override_active = 1U;
-        s_rpm_override_ts     = HAL_GetTick();
-        /* Actual drive applied by control task (sees VCP_IsRpmOverrideActive). */
+        Task_control_SetVelocitySetpoint((float)cmd.sp_rpm);
         Comms_SendAck(VCP_TYPE_CMD_SET_SP, 0U);
         break;
     }
@@ -273,29 +258,89 @@ static void Comms_Dispatch(const VcpPacket_t *pkt)
         break;
     }
 
+    case VCP_TYPE_CMD_SET_POS_SP: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdSetPosSp_t)) { break; }
+        VcpCmdSetPosSp_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        Task_control_SetPositionSetpoint(cmd.sp_cm);
+        Comms_SendAck(VCP_TYPE_CMD_SET_POS_SP, 0U);
+        break;
+    }
+
+    case VCP_TYPE_CMD_SET_POS_TRAJ: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdSetPosTraj_t)) { break; }
+        VcpCmdSetPosTraj_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        Task_control_SetPositionTraj(cmd.mode, cmd.amplitude_cm, cmd.period_s);
+        Comms_SendAck(VCP_TYPE_CMD_SET_POS_TRAJ, 0U);
+        break;
+    }
+
+    case VCP_TYPE_CMD_SPIN_CTRL: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdSpinCtrl_t)) { break; }
+        VcpCmdSpinCtrl_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        Task_control_SetSpinMode(cmd.enable, cmd.interval_s, cmd.yaw_force);
+        Comms_SendAck(VCP_TYPE_CMD_SPIN_CTRL, 0U);
+        break;
+    }
+
     default:
         break;
     }
 }
 
-/* ── Telemetry sender ───────────────────────────────────────────────────── */
+/* ── Telemetry senders ──────────────────────────────────────────────────── */
 
-static void Comms_SendTelemetry(void)
+static void Comms_SendPosTelemetry(const ControlState_t *cs)
 {
     extern UART_HandleTypeDef huart1;
 
-    float pv_l = MTR_GetCachedVelocityRPM(MTR_LEFT);
-    float pv_r = MTR_GetCachedVelocityRPM(MTR_RIGHT);
+    VcpTelPos_t tel;
+    tel.timestamp_ms = HAL_GetTick();
+    tel.pos_cm_x10   = (int16_t)(cs->pos_cm       * 10.0f);
+    tel.sp_cm_x10    = (int16_t)(cs->pos_sp_cm    * 10.0f);
+    tel.vel_sp_rpm   = (int16_t)(cs->pos_vel_sp_rpm);
+    tel.ctrl_mode    = cs->ctrl_mode;
+    tel.traj_mode    = cs->traj_mode;
+
+    uint8_t tx_buf[TX_BUF_SIZE];
+    VcpPacket_t pkt;
+    pkt.type    = VCP_TYPE_TELEMETRY_POS;
+    pkt.flags   = 0U;
+    pkt.seq     = s_tx_seq++;
+    pkt.len     = (uint16_t)sizeof(VcpTelPos_t);
+    pkt.payload = (uint8_t *)&tel;
+
+    int n = VcpProtocol_Frame(&pkt, tx_buf, sizeof(tx_buf));
+    if (n > 0) {
+        HAL_UART_Transmit(&huart1, tx_buf, (uint16_t)n, 10U);
+    }
+}
+
+/*
+ * VcpTelPid_t field mapping (cascade mode):
+ *   sp_rpm       : velocity setpoint (RPM)
+ *   pv_l_rpm     : left wheel velocity (RPM)
+ *   pv_r_rpm     : right wheel velocity (RPM)
+ *   err_l        : target_pitch_deg × 100  (outer loop output → inner setpoint)
+ *   err_r        : (reserved, 0)
+ *   pwm_l_x100   : left motor drive output × 100
+ *   pwm_r_x100   : right motor drive output × 100
+ */
+static void Comms_SendPidTelemetry(const ControlState_t *cs)
+{
+    extern UART_HandleTypeDef huart1;
 
     VcpTelPid_t tel;
     tel.timestamp_ms = HAL_GetTick();
-    tel.sp_rpm       = s_vcp_sp_rpm;
-    tel.pv_l_rpm     = (int16_t)pv_l;
-    tel.pv_r_rpm     = (int16_t)pv_r;
-    tel.err_l        = s_vcp_sp_rpm - (int16_t)pv_l;
-    tel.err_r        = s_vcp_sp_rpm - (int16_t)pv_r;
-    tel.pwm_l_x100   = (int16_t)(MTR_GetLastPwmOutput(MTR_LEFT)  * 100.0f);
-    tel.pwm_r_x100   = (int16_t)(MTR_GetLastPwmOutput(MTR_RIGHT) * 100.0f);
+    tel.sp_rpm       = (int16_t)cs->target_vel_rpm;
+    tel.pv_l_rpm     = (int16_t)cs->vel_l_rpm;
+    tel.pv_r_rpm     = (int16_t)cs->vel_r_rpm;
+    tel.err_l        = (int16_t)(cs->target_pitch_deg * 100.0f);
+    tel.err_r        = 0;
+    tel.pwm_l_x100   = (int16_t)(cs->left_output  * 100.0f);
+    tel.pwm_r_x100   = (int16_t)(cs->right_output * 100.0f);
 
     uint8_t tx_buf[TX_BUF_SIZE];
     VcpPacket_t pkt;
@@ -311,23 +356,20 @@ static void Comms_SendTelemetry(void)
     }
 }
 
-static void Comms_SendImuTelemetry(void)
+static void Comms_SendImuTelemetry(const ControlState_t *cs)
 {
     extern UART_HandleTypeDef huart1;
 
-    ControlState_t cs;
-    Task_control_GetState(&cs);
-
     VcpTelImu_t tel;
     tel.timestamp_ms = HAL_GetTick();
-    tel.accel_x_mg   = (int16_t)(cs.accel_x_g  * 1000.0f);
-    tel.accel_y_mg   = (int16_t)(cs.accel_y_g  * 1000.0f);
-    tel.accel_z_mg   = (int16_t)(cs.accel_z_g  * 1000.0f);
-    tel.gyro_x_x100  = (int16_t)(cs.gyro_x_dps * 100.0f);
-    tel.gyro_y_x100  = (int16_t)(cs.gyro_y_dps * 100.0f);
-    tel.gyro_z_x100  = (int16_t)(cs.gyro_z_dps * 100.0f);
-    tel.pitch_x100   = (int16_t)(cs.pitch_deg    * 100.0f);
-    tel.drive_x100   = (int16_t)(cs.drive_output * 100.0f);
+    tel.accel_x_mg   = (int16_t)(cs->accel_x_g  * 1000.0f);
+    tel.accel_y_mg   = (int16_t)(cs->accel_y_g  * 1000.0f);
+    tel.accel_z_mg   = (int16_t)(cs->accel_z_g  * 1000.0f);
+    tel.gyro_x_x100  = (int16_t)(cs->gyro_x_dps * 100.0f);
+    tel.gyro_y_x100  = (int16_t)(cs->gyro_y_dps * 100.0f);
+    tel.gyro_z_x100  = (int16_t)(cs->gyro_z_dps * 100.0f);
+    tel.pitch_x100   = (int16_t)(cs->pitch_deg    * 100.0f);
+    tel.drive_x100   = (int16_t)(cs->drive_output * 100.0f);
 
     uint8_t tx_buf[TX_BUF_SIZE];
     VcpPacket_t pkt;
@@ -395,7 +437,7 @@ static void CommsTask(void *pvParameters)
     (void)pvParameters;
 
     extern UART_HandleTypeDef huart1;
-    HAL_UART_Receive_IT(&huart1, &s_rx_byte, 1U);   /* arm first RX */
+    HAL_UART_Receive_IT(&huart1, &s_rx_byte, 1U);
 
     uint32_t last_tel_ms   = 0U;
     uint32_t last_calib_ms = 0U;
@@ -409,15 +451,14 @@ static void CommsTask(void *pvParameters)
         ControlState_t cs;
         Task_control_GetState(&cs);
 
-        /* Calibration telemetry — 100 Hz while running, one EOF packet on completion. */
+        /* Calibration telemetry — 100 Hz while running, one EOF packet on completion */
         if (cs.calib_active) {
             if ((now - last_calib_ms) >= 10U) {
                 last_calib_ms = now;
                 Comms_SendCalibTelemetry(&cs);
             }
         } else if (prev_calib) {
-            /* Transition 1→0 : send exactly one EOF packet (no rate limit) */
-            Comms_SendCalibTelemetry(&cs);   /* calib_active==0 = done marker */
+            Comms_SendCalibTelemetry(&cs);
         }
         prev_calib = cs.calib_active;
 
@@ -426,8 +467,9 @@ static void CommsTask(void *pvParameters)
             uint32_t interval = 1000U / (uint32_t)s_stream_rate_hz;
             if ((now - last_tel_ms) >= interval) {
                 last_tel_ms = now;
-                Comms_SendTelemetry();
-                Comms_SendImuTelemetry();
+                Comms_SendImuTelemetry(&cs);
+                Comms_SendPidTelemetry(&cs);
+                Comms_SendPosTelemetry(&cs);
             }
         }
 

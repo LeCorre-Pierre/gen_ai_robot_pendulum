@@ -14,19 +14,28 @@
 #define VCP_TYPE_TELEMETRY_PID   0x10u
 #define VCP_TYPE_TELEMETRY_IMU   0x11u
 #define VCP_TYPE_TELEMETRY_CALIB 0x12u   /* motor dead-zone calibration stream */
+#define VCP_TYPE_TELEMETRY_POS   0x13u   /* position loop telemetry */
 
 /* Downlink  PC → STM32 */
-#define VCP_TYPE_CMD_SET_GAINS   0x20u
-#define VCP_TYPE_CMD_SET_SP      0x21u
-#define VCP_TYPE_CMD_STREAM_CTRL 0x22u
-#define VCP_TYPE_CMD_MOTOR_CTRL  0x23u
+#define VCP_TYPE_CMD_SET_GAINS         0x20u
+#define VCP_TYPE_CMD_SET_SP            0x21u
+#define VCP_TYPE_CMD_STREAM_CTRL       0x22u
+#define VCP_TYPE_CMD_MOTOR_CTRL        0x23u
 #define VCP_TYPE_CMD_SET_BALANCE_GAINS 0x24u
 #define VCP_TYPE_CMD_MOTOR_CALIB       0x25u   /* start/abort calibration sequence */
+#define VCP_TYPE_CMD_SET_POS_SP        0x26u   /* position setpoint (cm, relative to origin) */
+#define VCP_TYPE_CMD_SET_POS_TRAJ      0x27u   /* trajectory: mode + amplitude + period */
+#define VCP_TYPE_CMD_SPIN_CTRL         0x28u   /* periodic 360° auto-spin */
 
 /* loop_id for SET_BALANCE_GAINS */
 #define VCP_LOOP_ANGLE    0u
 #define VCP_LOOP_VELOCITY 1u
 #define VCP_LOOP_YAW      2u
+#define VCP_LOOP_POSITION 3u
+
+/* traj_mode for SET_POS_TRAJ */
+#define VCP_TRAJ_HOLD  0u
+#define VCP_TRAJ_SINUS 1u
 
 /* Uplink  STM32 → PC  (ack of a command) */
 #define VCP_TYPE_ACK             0x30u
@@ -114,6 +123,35 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     uint8_t enable;   /* 1 = start sequence, 0 = abort */
 } VcpCmdMotorCalib_t;
+
+/* VCP_TYPE_TELEMETRY_POS — 12 bytes */
+typedef struct __attribute__((packed)) {
+    uint32_t timestamp_ms;
+    int16_t  pos_cm_x10;    /* current position × 10 (cm) — range ±3276.7 cm */
+    int16_t  sp_cm_x10;     /* position setpoint × 10 (cm) */
+    int16_t  vel_sp_rpm;    /* velocity setpoint output from position PID (RPM) */
+    uint8_t  ctrl_mode;     /* 0=velocity, 1=position */
+    uint8_t  traj_mode;     /* 0=hold, 1=sinus */
+} VcpTelPos_t;
+
+/* VCP_TYPE_CMD_SET_POS_SP — 4 bytes */
+typedef struct __attribute__((packed)) {
+    float sp_cm;            /* target position (cm) relative to current origin */
+} VcpCmdSetPosSp_t;
+
+/* VCP_TYPE_CMD_SET_POS_TRAJ — 9 bytes */
+typedef struct __attribute__((packed)) {
+    uint8_t mode;           /* VCP_TRAJ_HOLD or VCP_TRAJ_SINUS */
+    float   amplitude_cm;   /* sinus: amplitude (cm); hold: target position (cm) */
+    float   period_s;       /* sinus: period (s); unused for hold */
+} VcpCmdSetPosTraj_t;
+
+/* VCP_TYPE_CMD_SPIN_CTRL — 9 bytes */
+typedef struct __attribute__((packed)) {
+    uint8_t enable;       /* 1 = activate periodic spin, 0 = deactivate */
+    float   interval_s;   /* time between spins (s) */
+    float   yaw_force;    /* normalized yaw differential [0.1..0.5] */
+} VcpCmdSpinCtrl_t;
 
 /* VCP_TYPE_ACK — 2 bytes */
 typedef struct __attribute__((packed)) {
