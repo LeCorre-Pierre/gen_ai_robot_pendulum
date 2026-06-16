@@ -1,8 +1,9 @@
 """
 ident_td_panel.py — Transport delay (dead time td) identification panel.
 
-Method: injects a square-wave RPM setpoint and cross-correlates the
-drive signal with the measured angular acceleration θ̈.
+Method: injects a square-wave direct drive command (VCP_TYPE_CMD_SET_DRIVE,
+bypasses the balance loop) and cross-correlates the drive signal with the
+measured angular acceleration θ̈.
 Peak lag in causal region [0, half_period] = td.
 
 Results + raw samples (pitch_rate_dps, drive_norm) saved to JSON.
@@ -23,12 +24,12 @@ from PySide6.QtWidgets import (
 )
 import pyqtgraph as pg
 
-_MAX_RPM   = 85
 _OV_COLORS = ["#ef5350", "#ffa726", "#66bb6a", "#29b6f6", "#ab47bc", "#ec407a", "#26c6da"]
 
 
 class IdentTdPanel(QWidget):
-    send_sp = Signal(int)   # RPM setpoint [-85..+85]
+    send_drive = Signal(float)  # direct drive [-1..+1] → gui._send_drive
+    send_sp    = Signal(int)    # SP(0) used only to exit direct-drive mode on stop
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,7 +39,8 @@ class IdentTdPanel(QWidget):
 
         # samples: (t_recv, pitch_rate_dps, drive_norm)
         self._samples: list[tuple[float, float, float]] = []
-        self._cur_drive = 0.0
+        self._cur_drive    = 0.0
+        self._command_drive = 0.0
         self._last_result: dict | None = None
         self._overlay: list[dict] = []
 
@@ -46,6 +48,11 @@ class IdentTdPanel(QWidget):
 
         self._sw_timer    = QTimer(self, singleShot=False)
         self._sw_timer.timeout.connect(self._toggle_phase)
+
+        # Resend the current drive at 10 Hz so a half-period longer than the
+        # firmware's no-command hold window doesn't get cut short to 0.
+        self._ka_timer = QTimer(self, interval=100)
+        self._ka_timer.timeout.connect(self._keepalive)
 
         self._xcorr_timer = QTimer(self, interval=800)
         self._xcorr_timer.timeout.connect(self._update_xcorr)
@@ -86,10 +93,50 @@ class IdentTdPanel(QWidget):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
+        lay.addWidget(self._build_mode_grp())
         lay.addWidget(self._build_sw_grp())
         lay.addWidget(self._build_telem_grp())
         lay.addStretch()
         return w
+
+    def _build_mode_grp(self) -> QGroupBox:
+        grp = QGroupBox("Mode identification  (boucle équilibre)")
+        grp.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
+        lay = QVBoxLayout(grp)
+
+        self._mode_btn = QPushButton("🔓 Entrer en mode identification")
+        self._mode_btn.setCheckable(True)
+        self._mode_btn.setFixedHeight(32)
+        self._mode_btn.setStyleSheet(
+            "QPushButton{background:#37474f;color:white;font-weight:bold;}"
+            "QPushButton:checked{background:#ab47bc;}"
+            "QPushButton:hover{background:#455a64;}"
+        )
+        self._mode_btn.toggled.connect(self._on_mode_toggle)
+        lay.addWidget(self._mode_btn)
+
+        hint = QLabel(
+            "Robot à l'envers avant d'entrer.\n"
+            "Ne sortir qu'une fois le robot reposé sur ses roues —\n"
+            "la sortie réactive immédiatement l'équilibre."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size:9px;color:#ff7043;font-family:Consolas;")
+        lay.addWidget(hint)
+
+        return grp
+
+    def _on_mode_toggle(self, checked: bool):
+        if checked:
+            self._command_drive = 0.0
+            self.send_drive.emit(0.0)   # enters ctrl_mode=2, drive parked at 0
+            self._mode_btn.setText("🔒 Sortir du mode identification")
+            self._start_btn.setEnabled(True)
+        else:
+            self._stop()
+            self.send_sp.emit(0)        # exits to normal balance (ctrl_mode=0)
+            self._mode_btn.setText("🔓 Entrer en mode identification")
+            self._start_btn.setEnabled(False)
 
     def _build_sw_grp(self) -> QGroupBox:
         grp = QGroupBox("Générateur signal carré")
@@ -110,9 +157,10 @@ class IdentTdPanel(QWidget):
             lay.addLayout(h)
 
         self._amp_spin = QSpinBox()
-        self._amp_spin.setRange(5, _MAX_RPM)
-        self._amp_spin.setValue(30)
-        self._amp_spin.setSuffix(" RPM")
+        self._amp_spin.setRange(5, 100)
+        self._amp_spin.setValue(20)
+        self._amp_spin.setSuffix(" %")
+        self._amp_spin.setToolTip("Amplitude ± du drive direct (% du drive max)")
         _row("Amplitude ±", self._amp_spin)
 
         self._half_spin = QDoubleSpinBox()
@@ -143,6 +191,7 @@ class IdentTdPanel(QWidget):
             "QPushButton:disabled{background:#37474f;color:#546e7a;}"
         )
         self._start_btn.clicked.connect(self._start)
+        self._start_btn.setEnabled(False)   # requires mode identification active
         btn_row.addWidget(self._start_btn)
 
         stop_btn = QPushButton("⏹ STOP")
@@ -286,7 +335,7 @@ class IdentTdPanel(QWidget):
     # ── Square-wave control ───────────────────────────────────────────────────
 
     def _start(self):
-        if self._running:
+        if self._running or not self._mode_btn.isChecked():
             return
         self._running   = True
         self._phase_pos = True
@@ -298,6 +347,7 @@ class IdentTdPanel(QWidget):
         total_ms = half_ms * 2 * self._ncyc_spin.value()
 
         self._sw_timer.start(half_ms)
+        self._ka_timer.start()
         self._xcorr_timer.start()
         self._plot_timer.start()
         self._toggle_phase()
@@ -314,10 +364,12 @@ class IdentTdPanel(QWidget):
             return
         self._running = False
         self._sw_timer.stop()
+        self._ka_timer.stop()
         self._xcorr_timer.stop()
         self._plot_timer.stop()
-        self.send_sp.emit(0)
-        self._start_btn.setEnabled(True)
+        self._command_drive = 0.0
+        self.send_drive.emit(0.0)   # parks at drive=0, stays in identification mode
+        self._start_btn.setEnabled(self._mode_btn.isChecked())
         self._status_lbl.setText("⏹ Arrêté")
         self._status_lbl.setStyleSheet(
             "font-size:13px;font-family:Consolas;font-weight:bold;color:#546e7a;"
@@ -325,10 +377,14 @@ class IdentTdPanel(QWidget):
         self._update_xcorr()
 
     def _toggle_phase(self):
-        amp = self._amp_spin.value()
-        rpm = amp if self._phase_pos else -amp
-        self._phase_pos = not self._phase_pos
-        self.send_sp.emit(rpm)
+        amp = self._amp_spin.value() / 100.0
+        self._command_drive = amp if self._phase_pos else -amp
+        self._phase_pos      = not self._phase_pos
+        self.send_drive.emit(self._command_drive)
+
+    def _keepalive(self):
+        if self._running:
+            self.send_drive.emit(self._command_drive)
 
     def _clear(self):
         self._samples.clear()
@@ -350,7 +406,7 @@ class IdentTdPanel(QWidget):
             return
         arr = np.array(self._samples[-800:], dtype=float)
         t   = arr[:, 0] - arr[0, 0]
-        self._ts_drive.setData(x=list(t), y=list(arr[:, 2] * _MAX_RPM))
+        self._ts_drive.setData(x=list(t), y=list(arr[:, 2] * 100.0))
         self._ts_rate.setData( x=list(t), y=list(arr[:, 1]))
 
     # ── Cross-correlation ─────────────────────────────────────────────────────
@@ -463,7 +519,7 @@ class IdentTdPanel(QWidget):
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "type": "ident_td",
             "parameters": {
-                "amplitude_rpm": self._amp_spin.value(),
+                "amplitude_pct": self._amp_spin.value(),
                 "half_period_s": round(self._half_spin.value(), 3),
                 "nb_cycles":     self._ncyc_spin.value(),
             },
@@ -527,7 +583,7 @@ class IdentTdPanel(QWidget):
         xp.setData(x=[result["td_ms"]], y=[result["peak_val"]])
         t_rel = arr[:, 0] - arr[0, 0]
         tc.setData(x=list(t_rel), y=list(arr[:, 1]))
-        td.setData(x=list(t_rel), y=list(arr[:, 2] * _MAX_RPM))
+        td.setData(x=list(t_rel), y=list(arr[:, 2] * 100.0))
 
         item = QListWidgetItem(label)
         item.setForeground(pg.mkColor(color))

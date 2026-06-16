@@ -11,6 +11,7 @@
  *   STREAM_CTRL       (0x22) : enable/disable telemetry, set rate
  *   MOTOR_CTRL        (0x23) : coast / brake / enable
  *   MOTOR_CALIB       (0x25) : start/abort dead-zone calibration sequence
+ *   SET_DRIVE         (0x29) : direct drive [-1..+1], bypasses balance loop → Task_control_SetDirectDrive
  *
  * UART RX is byte-at-a-time interrupt-driven into a 256-byte ring buffer.
  * Task polls the buffer every 2 ms, assembles frames, dispatches commands.
@@ -282,6 +283,24 @@ static void Comms_Dispatch(const VcpPacket_t *pkt)
         memcpy(&cmd, pkt->payload, sizeof(cmd));
         Task_control_SetSpinMode(cmd.enable, cmd.interval_s, cmd.yaw_force);
         Comms_SendAck(VCP_TYPE_CMD_SPIN_CTRL, 0U);
+        break;
+    }
+
+    case VCP_TYPE_CMD_SET_DRIVE: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdSetDrive_t)) { break; }
+        VcpCmdSetDrive_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        Task_control_SetDirectDrive((float)cmd.drive_x1000 * 0.001f);
+        Comms_SendAck(VCP_TYPE_CMD_SET_DRIVE, 0U);
+        break;
+    }
+
+    case VCP_TYPE_CMD_SET_ANGLE_SP: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdSetAngleSp_t)) { break; }
+        VcpCmdSetAngleSp_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        Task_control_SetAngleOffset(cmd.offset_deg);
+        Comms_SendAck(VCP_TYPE_CMD_SET_ANGLE_SP, 0U);
         break;
     }
 

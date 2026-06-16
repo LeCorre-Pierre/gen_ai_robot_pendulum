@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import deque
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, QRectF
+from PySide6.QtCore import Qt, QTimer, QRectF, Signal
 from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QComboBox, QDoubleSpinBox, QGroupBox,
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 import pyqtgraph as pg
 
 _DT     = 0.005
-_SAFETY = 45.0
+_SAFETY = 20.0
 
 C_ANGLE = "#ef5350"
 C_DRIVE = "#ffffff"
@@ -216,15 +216,20 @@ class _RobotViz(QWidget):
 # ── Main panel ────────────────────────────────────────────────────────────────
 
 class SimPanel(QWidget):
-    _DEF_A   = 7.38
-    _DEF_K   = 2000.0
-    _DEF_TAU = 0.189
+    request_snapshot = Signal(float)   # duration_s — demande données live
+
+    _DEF_A   = 6.56   # mesure Ident a — 8 essais, régression poolée, a=6.562±0.016 rad/s
+    _DEF_K   = 4400.0 # mesure Ident K — fit sinusoïdal, plusieurs mesures
+    _DEF_TAU = 0.005  # mesure Ident Td — td≈5 ms (période contrôle 200 Hz)
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self._live_kp = self._live_ki = self._live_kd = 0.0
         self._instant_result = None
+        self._snap_t     = None   # temps normalisé (live snapshot)
+        self._snap_theta = None   # angle mesuré (live snapshot)
+        self._shown_ij   = None   # (i, j) du dernier essai affiché (heatmap ou tableau)
 
         # sweep state
         self._sweep_kp_vals = None
@@ -304,10 +309,23 @@ class SimPanel(QWidget):
         hint.setStyleSheet("font-size:8px;color:#37474f;font-family:Consolas;")
         pl.addWidget(hint)
 
-        self._sync_btn = QPushButton("↓ Copier depuis Live")
+        self._sync_btn = QPushButton("↓ Copier gains depuis Live")
         self._sync_btn.setFixedHeight(24); self._sync_btn.setEnabled(False)
         self._sync_btn.clicked.connect(self._on_sync)
         pl.addWidget(self._sync_btn)
+
+        gel_row = QHBoxLayout(); gel_row.setSpacing(4)
+        self._gel_btn = QPushButton("📌 Gel θ réel depuis Live")
+        self._gel_btn.setFixedHeight(24); self._gel_btn.setEnabled(False)
+        self._gel_btn.setToolTip("Capture les dernières secondes de pitch live et superpose sur la simulation")
+        self._gel_btn.clicked.connect(self._on_gel_btn)
+        gel_row.addWidget(self._gel_btn)
+        self._clr_btn = QPushButton("✕")
+        self._clr_btn.setFixedWidth(26); self._clr_btn.setFixedHeight(24)
+        self._clr_btn.setToolTip("Effacer la courbe réelle")
+        self._clr_btn.clicked.connect(self._clear_snapshot)
+        gel_row.addWidget(self._clr_btn)
+        pl.addLayout(gel_row)
         ll.addWidget(gb_pid)
 
         # Simulation settings
@@ -464,7 +482,10 @@ class SimPanel(QWidget):
         for y in (0, _SAFETY, -_SAFETY):
             self._p_angle.addLine(y=y, pen=pg.mkPen(
                 C_SAFE if abs(y)==_SAFETY else C_ZERO, width=1, style=Qt.PenStyle.DashLine))
-        self._c_ang = self._p_angle.plot(pen=pg.mkPen(C_ANGLE, width=2), name="θ")
+        self._c_ang  = self._p_angle.plot(pen=pg.mkPen(C_ANGLE,   width=2), name="θ sim")
+        self._c_real = self._p_angle.plot(
+            pen=pg.mkPen("#ffa726", width=2, style=Qt.PenStyle.DashLine), name="θ réel"
+        )
 
         self._p_pid = glw.addPlot(row=1, col=0, title="Sortie PID (normalisée)")
         self._p_pid.showGrid(x=True, y=True, alpha=0.25)
@@ -620,11 +641,35 @@ class SimPanel(QWidget):
     def sync_gains(self, kp, ki, kd):
         self._live_kp, self._live_ki, self._live_kd = kp, ki, kd
         self._sync_btn.setEnabled(True)
+        self._gel_btn.setEnabled(True)
 
     def _on_sync(self):
         self._r_kp.set_value(self._live_kp)
         self._r_ki.set_value(self._live_ki)
         self._r_kd.set_value(self._live_kd)
+
+    def _on_gel_btn(self):
+        self.request_snapshot.emit(self._r_dur.value())
+
+    def _clear_snapshot(self):
+        self._snap_t = None
+        self._snap_theta = None
+        self._c_real.setData([], [])
+
+    def import_snapshot(self, t_arr: "np.ndarray", theta_arr: "np.ndarray"):
+        """Receive live pitch data, plot as orange dashed curve alongside simulation."""
+        if len(t_arr) < 2:
+            return
+        self._snap_t     = t_arr
+        self._snap_theta = theta_arr
+        # Set simulation initial condition to match real starting angle
+        theta0 = max(0.1, min(30.0, abs(float(theta_arr[0]))))
+        self._r_theta0.setValue(theta0)
+        # Match duration to real data length
+        real_dur = float(t_arr[-1])
+        self._r_dur.setValue(min(max(real_dur, 1.0), 60.0))
+        self._c_real.setData(x=t_arr, y=theta_arr)
+        self._schedule_instant()
 
     # ── Sweep ─────────────────────────────────────────────────────────────────
 
@@ -766,6 +811,7 @@ class SimPanel(QWidget):
         if r is None: return
         kp = self._sweep_kp_vals[i]; kd = self._sweep_kd_vals[j]
         ki = self._ki_fixed.value()
+        self._shown_ij = (i, j)
         self._heat_sel.setData(x=[kp], y=[kd])
         v = r["valid"]
         t = np.arange(v) * _DT

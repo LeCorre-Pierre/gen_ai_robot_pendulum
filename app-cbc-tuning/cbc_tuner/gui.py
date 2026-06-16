@@ -46,6 +46,7 @@ from .sweep_planner import SweepPlannerPanel
 from .sweep_runner import SweepRunnerPanel
 from .ident_k_panel import IdentKPanel
 from .ident_td_panel import IdentTdPanel
+from .ident_a_panel import IdentAPanel
 from .simulation_panel import SimPanel
 from .motor_calib_panel import MotorCalibPanel
 
@@ -74,8 +75,10 @@ _TYPE_SET_POS_TRAJ = 0x27
 
 _TRAJ_HOLD  = 0
 _TRAJ_SINUS = 1
-_TYPE_SPIN_CTRL = 0x28
-_CTRL_SPIN = 3
+_TYPE_SPIN_CTRL  = 0x28
+_CTRL_SPIN       = 3
+_TYPE_SET_DRIVE  = 0x29
+_TYPE_ANGLE_SP   = 0x2A
 
 # VcpTelPid_t : uint32 + 7×int16 = 18 bytes
 # ts, sp_rpm, pv_l, pv_r, err_l, err_r, pwm_l_x100, pwm_r_x100
@@ -140,6 +143,13 @@ def _pos_traj_frame(mode: int, amplitude_cm: float, period_s: float, seq: int) -
 def _spin_frame(enable: bool, interval_s: float, yaw_force: float, seq: int) -> bytes:
     return _build_frame(_TYPE_SPIN_CTRL,
                         struct.pack("<Bff", int(enable), interval_s, yaw_force), seq)
+
+def _angle_sp_frame(offset_deg: float, seq: int) -> bytes:
+    return _build_frame(_TYPE_ANGLE_SP, struct.pack("<f", offset_deg), seq)
+
+def _drive_frame(drive_norm: float, seq: int) -> bytes:
+    drive_x1000 = int(round(max(-1.0, min(1.0, drive_norm)) * 1000))
+    return _build_frame(_TYPE_SET_DRIVE, struct.pack("<h", drive_x1000), seq)
 
 def _list_ports():
     result = []
@@ -575,6 +585,108 @@ class _DisplayOptionsPanel(QGroupBox):
 
     def row(self, key: str) -> _CurveRow:
         return self._rows[key]
+
+
+# ── Angle setpoint slider ─────────────────────────────────────────────────────
+
+class _AngleSpPanel(QGroupBox):
+    """Slider for manual angle equilibrium offset (-5° to +5°, step 0.1°)."""
+
+    value_changed = Signal(float)   # offset in degrees
+
+    _TICKS_PER_DEG = 10   # slider range [-50..+50] → [-5.0..+5.0] °
+
+    def __init__(self, parent=None):
+        super().__init__("Consigne angle  (offset équilibre)", parent)
+        self.setStyleSheet("QGroupBox { font-weight:bold; font-size:11px; }")
+
+        self._syncing = False
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 12, 8, 8)
+        lay.setSpacing(4)
+
+        # Value label + reset button
+        top = QHBoxLayout(); top.setSpacing(6)
+        self._lbl = QLabel("0.0 °")
+        self._lbl.setStyleSheet(
+            "font-size:16px;font-family:Consolas;font-weight:bold;color:#42a5f5;"
+        )
+        self._lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(self._lbl, stretch=1)
+        self._reset_btn = QPushButton("Reset")
+        self._reset_btn.setFixedWidth(56)
+        self._reset_btn.setFixedHeight(24)
+        self._reset_btn.clicked.connect(self._reset)
+        top.addWidget(self._reset_btn)
+        lay.addLayout(top)
+
+        # Slider row with limit labels
+        row = QHBoxLayout(); row.setSpacing(4)
+        lo_lbl = QLabel("-5°"); lo_lbl.setStyleSheet("font-size:9px;color:#546e7a;")
+        hi_lbl = QLabel("+5°"); hi_lbl.setStyleSheet("font-size:9px;color:#546e7a;")
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setRange(-50, 50)
+        self._slider.setValue(0)
+        self._slider.setTickInterval(10)
+        self._slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._slider.valueChanged.connect(self._on_slider)
+        row.addWidget(lo_lbl)
+        row.addWidget(self._slider, stretch=1)
+        row.addWidget(hi_lbl)
+        lay.addLayout(row)
+
+        # Fine spinbox
+        spin_row = QHBoxLayout(); spin_row.setSpacing(4)
+        spin_row.addWidget(QLabel("Valeur :"))
+        self._spin = QDoubleSpinBox()
+        self._spin.setRange(-5.0, 5.0)
+        self._spin.setDecimals(1)
+        self._spin.setSingleStep(0.1)
+        self._spin.setSuffix(" °")
+        self._spin.setFixedWidth(78)
+        self._spin.setStyleSheet("font-size:11px;font-family:Consolas;")
+        self._spin.editingFinished.connect(self._on_spin)
+        spin_row.addWidget(self._spin)
+        spin_row.addStretch()
+        lay.addLayout(spin_row)
+
+    def _on_slider(self, v: int):
+        if self._syncing: return
+        deg = v / self._TICKS_PER_DEG
+        self._syncing = True
+        self._spin.setValue(deg)
+        self._syncing = False
+        self._update_label(deg)
+        self.value_changed.emit(deg)
+
+    def _on_spin(self):
+        if self._syncing: return
+        deg = self._spin.value()
+        self._syncing = True
+        self._slider.setValue(int(round(deg * self._TICKS_PER_DEG)))
+        self._syncing = False
+        self._update_label(deg)
+        self.value_changed.emit(deg)
+
+    def _update_label(self, deg: float):
+        sign = "+" if deg >= 0 else ""
+        self._lbl.setText(f"{sign}{deg:.1f} °")
+        color = "#42a5f5" if abs(deg) < 0.05 else "#ffd54f"
+        self._lbl.setStyleSheet(
+            f"font-size:16px;font-family:Consolas;font-weight:bold;color:{color};"
+        )
+
+    def _reset(self):
+        self._syncing = True
+        self._slider.setValue(0)
+        self._spin.setValue(0.0)
+        self._syncing = False
+        self._update_label(0.0)
+        self.value_changed.emit(0.0)
+
+    def value(self) -> float:
+        return self._spin.value()
 
 
 # ── Angle PID panel ───────────────────────────────────────────────────────────
@@ -1364,6 +1476,7 @@ class _PositionPanel(QWidget):
             (0, 0): "VELOCITY",
             (1, 0): "HOLD",
             (1, 1): "SINUS",
+            (2, 0): "DRIVE DIRECT",
             (3, 0): "SPIN – attente",
             (3, 1): "SPIN – rotation",
         }.get((ctrl_mode, traj_mode), "—")
@@ -1371,6 +1484,7 @@ class _PositionPanel(QWidget):
             "VELOCITY":      "#78909c",
             "HOLD":          "#42a5f5",
             "SINUS":         "#66bb6a",
+            "DRIVE DIRECT":  "#ab47bc",
             "SPIN – attente":"#ffd54f",
             "SPIN – rotation":"#ff7043",
         }.get(mode_str, "#e0e0e0")
@@ -1559,7 +1673,9 @@ class CbcTuner(QMainWindow):
         self._results_panel = SweepPanel()
         self._ident_k_panel  = IdentKPanel()
         self._ident_td_panel = IdentTdPanel()
+        self._ident_a_panel  = IdentAPanel()
         self._sim_panel         = SimPanel()
+        self._sim_panel.request_snapshot.connect(self._on_snapshot_request)
         self._motor_calib_panel = MotorCalibPanel()
 
         self._right_tabs.addTab(self._planner_panel,      "Plan")
@@ -1567,6 +1683,7 @@ class CbcTuner(QMainWindow):
         self._tab_res_idx = self._right_tabs.addTab(self._results_panel, "Résultats")
         self._right_tabs.addTab(self._ident_k_panel,      "Ident K")
         self._right_tabs.addTab(self._ident_td_panel,     "Ident td")
+        self._right_tabs.addTab(self._ident_a_panel,      "Ident a")
         self._right_tabs.addTab(self._sim_panel,          "Simulation")
         self._right_tabs.addTab(self._motor_calib_panel,  "Calib moteurs")
 
@@ -1580,8 +1697,12 @@ class CbcTuner(QMainWindow):
         self._pos_panel.vel_mode_cmd.connect(lambda: self._send_sp(0))
         self._right_tabs.addTab(self._pos_panel, "Position")
 
+        self._ident_k_panel.send_drive.connect(self._send_drive)
         self._ident_k_panel.send_sp.connect(self._send_sp)
+        self._ident_td_panel.send_drive.connect(self._send_drive)
         self._ident_td_panel.send_sp.connect(self._send_sp)
+        self._ident_a_panel.send_drive.connect(self._send_drive)
+        self._ident_a_panel.send_sp.connect(self._send_sp)
         self._motor_calib_panel.start_calib.connect(self._send_motor_calib)
 
         self._planner_panel.plan_ready.connect(self._on_plan_ready)
@@ -1610,6 +1731,10 @@ class CbcTuner(QMainWindow):
             lambda kp, ki, kd: self._send_gains(0, kp, ki, kd)
         )
         lay.addWidget(self._angle_panel)
+
+        self._angle_sp_panel = _AngleSpPanel()
+        self._angle_sp_panel.value_changed.connect(self._send_angle_sp)
+        lay.addWidget(self._angle_sp_panel)
 
         self._velocity_panel = _VelocityPidPanel()
         self._velocity_panel.apply_requested.connect(self._on_vel_gains_changed)
@@ -1819,6 +1944,31 @@ class CbcTuner(QMainWindow):
         self._reader.write(_sp_frame(rpm, self._tx_seq))
         self._tx_seq = (self._tx_seq + 1) & 0xFF
 
+    def _send_drive(self, drive_norm: float):
+        if not self._reader:
+            return
+        self._reader.write(_drive_frame(drive_norm, self._tx_seq))
+        self._tx_seq = (self._tx_seq + 1) & 0xFF
+
+    def _send_angle_sp(self, offset_deg: float):
+        if not self._reader:
+            return
+        self._reader.write(_angle_sp_frame(offset_deg, self._tx_seq))
+        self._tx_seq = (self._tx_seq + 1) & 0xFF
+
+    def _on_snapshot_request(self, duration_s: float):
+        s = self._state
+        n = len(s.t)
+        if n < 2:
+            return
+        t_arr = np.fromiter(s.t,     float, n)
+        p_arr = np.fromiter(s.pitch, float, n)
+        t_now = t_arr[-1]
+        mask  = t_arr >= (t_now - duration_s)
+        t_win = t_arr[mask] - t_arr[mask][0]   # normalize to start at 0
+        p_win = p_arr[mask]
+        self._sim_panel.import_snapshot(t_win, p_win)
+
     def _send_saved_gains(self):
         kp, ki, kd = self._angle_panel.gains()
         self._send_gains(0, kp, ki, kd)
@@ -1874,6 +2024,7 @@ class CbcTuner(QMainWindow):
         self._kident_panel.feed(pitch, drive_pct / 100.0, pitch_rate)
         self._ident_k_panel.feed_imu(pitch, drive_pct, pitch_rate)
         self._ident_td_panel.feed_imu(pitch, drive_pct, pitch_rate)
+        self._ident_a_panel.feed_imu(pitch, drive_pct, pitch_rate)
         dt  = (now - self._t_prev) if self._t_prev is not None else 0.005
         self._t_prev = now
 

@@ -1,10 +1,23 @@
 """
 ident_k_panel.py — K (actuator gain) identification panel.
 
-Excitation: square wave RPM setpoint (configurable amplitude + half-period).
-Firmware bypasses CBC via VCP_TYPE_CMD_SET_SP (0x21) override flag (500 ms timeout).
+Excitation: square/sine wave direct drive command (configurable amplitude +
+half-period). Sent via VCP_TYPE_CMD_SET_DRIVE (0x29), which drives both
+wheels identically and bypasses the balance loop entirely (ctrl_mode=2) —
+so 'u' is a true open-loop input.
 
-Regression:  θ̈ = K·u + a·θ + c
+Identification method — sinusoidal (frequency-response) fit, not point-wise
+OLS: the chassis pitch dynamics generally include a phase lag (sensor +
+mechanical inertia), so comparing θ̈(t) to u(t) at equal time index scrambles
+the data (clean periodic signal in time → patternless scatter). Since the
+excitation is a single known frequency ω, the steady-state response is
+fitted directly as  pitch_rate(t) ≈ p·sin(ωt) + q·cos(ωt) + offset.
+For the assumed model  θ̈ = K·u + a·θ + c  (a·θ, c negligible / absorbed by
+offset), the response amplitude  R = √(p²+q²)  relates to K by
+R = |K|·A_u/ω — independent of any phase lag, since a lag only rotates the
+phasor (p,q), it doesn't change its magnitude. The phase ψ = atan2(q,p) is
+reported separately as a diagnostic (ideal value −90° for a pure K·u term;
+deviation from −90° indicates extra delay/dynamics).
 """
 from __future__ import annotations
 
@@ -22,11 +35,9 @@ from PySide6.QtWidgets import (
 )
 import pyqtgraph as pg
 
-_MAX_RPM = 85
-
-
 class IdentKPanel(QWidget):
-    send_sp = Signal(int)   # RPM setpoint [-85..+85] → gui._send_sp
+    send_drive = Signal(float)  # direct drive [-1..+1] → gui._send_drive
+    send_sp    = Signal(int)    # SP(0) used only to exit direct-drive mode on stop
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,7 +51,7 @@ class IdentKPanel(QWidget):
         self._last_imu_t = 0.0
         self._last_result: dict | None = None  # stores last valid regression
         self._t_start    = 0.0
-        self._current_rpm = 0
+        self._current_drive = 0.0
 
         self._build_ui()
 
@@ -48,7 +59,8 @@ class IdentKPanel(QWidget):
         self._sw_timer = QTimer(self, singleShot=False)
         self._sw_timer.timeout.connect(self._toggle_phase)
 
-        # Keep-alive for square wave: resend at 4 Hz to hold the 500 ms override window
+        # Resend the current drive at 4 Hz so a half-period longer than the
+        # firmware's no-command hold window doesn't get cut short to 0.
         self._ka_timer = QTimer(self, interval=250)
         self._ka_timer.timeout.connect(self._keepalive)
 
@@ -103,11 +115,51 @@ class IdentKPanel(QWidget):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
+        lay.addWidget(self._build_mode_grp())
         lay.addWidget(self._build_signal_grp())
         lay.addWidget(self._build_telem_grp())
         lay.addWidget(self._build_result_grp())
         lay.addStretch()
         return w
+
+    def _build_mode_grp(self) -> QGroupBox:
+        grp = QGroupBox("Mode identification  (boucle équilibre)")
+        grp.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
+        lay = QVBoxLayout(grp)
+
+        self._mode_btn = QPushButton("🔓 Entrer en mode identification")
+        self._mode_btn.setCheckable(True)
+        self._mode_btn.setFixedHeight(32)
+        self._mode_btn.setStyleSheet(
+            "QPushButton{background:#37474f;color:white;font-weight:bold;}"
+            "QPushButton:checked{background:#ab47bc;}"
+            "QPushButton:hover{background:#455a64;}"
+        )
+        self._mode_btn.toggled.connect(self._on_mode_toggle)
+        lay.addWidget(self._mode_btn)
+
+        hint = QLabel(
+            "Robot à l'envers avant d'entrer.\n"
+            "Ne sortir qu'une fois le robot reposé sur ses roues —\n"
+            "la sortie réactive immédiatement l'équilibre."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size:9px;color:#ff7043;font-family:Consolas;")
+        lay.addWidget(hint)
+
+        return grp
+
+    def _on_mode_toggle(self, checked: bool):
+        if checked:
+            self._current_drive = 0.0
+            self.send_drive.emit(0.0)   # enters ctrl_mode=2, drive parked at 0
+            self._mode_btn.setText("🔒 Sortir du mode identification")
+            self._start_btn.setEnabled(True)
+        else:
+            self._stop()
+            self.send_sp.emit(0)        # exits to normal balance (ctrl_mode=0)
+            self._mode_btn.setText("🔓 Entrer en mode identification")
+            self._start_btn.setEnabled(False)
 
     def _build_signal_grp(self) -> QGroupBox:
         grp = QGroupBox("Signal d'excitation  —  signal carré")
@@ -126,10 +178,10 @@ class IdentKPanel(QWidget):
             lay.addLayout(h)
 
         self._amp_spin = QSpinBox()
-        self._amp_spin.setRange(5, _MAX_RPM)
-        self._amp_spin.setValue(40)
-        self._amp_spin.setSuffix(" RPM")
-        self._amp_spin.setToolTip("Amplitude ± du signal carré (RPM)")
+        self._amp_spin.setRange(5, 100)
+        self._amp_spin.setValue(25)
+        self._amp_spin.setSuffix(" %")
+        self._amp_spin.setToolTip("Amplitude ± du drive direct (% du drive max)")
         _row("Amplitude ±", self._amp_spin)
 
         self._half_spin = QDoubleSpinBox()
@@ -172,6 +224,7 @@ class IdentKPanel(QWidget):
             "QPushButton:disabled{background:#37474f;color:#546e7a;}"
         )
         self._start_btn.clicked.connect(self._start)
+        self._start_btn.setEnabled(False)   # requires mode identification active
         btn_row.addWidget(self._start_btn)
 
         self._stop_btn = QPushButton("⏹ STOP")
@@ -226,7 +279,7 @@ class IdentKPanel(QWidget):
         return v
 
     def _build_result_grp(self) -> QGroupBox:
-        grp = QGroupBox("Résultat OLS  :  θ̈ = K·u + a·θ + c")
+        grp = QGroupBox("Résultat (fit sinusoïdal)  :  pitch_rate ≈ R·sin(ωt+ψ)")
         grp.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
         lay = QVBoxLayout(grp)
 
@@ -240,7 +293,7 @@ class IdentKPanel(QWidget):
         self._r2_lbl.setStyleSheet("font-size:10px;font-family:Consolas;color:#90a4ae;")
         lay.addWidget(self._r2_lbl)
 
-        self._a_lbl = QLabel("a = —")
+        self._a_lbl = QLabel("ψ = —")
         self._a_lbl.setStyleSheet("font-size:10px;font-family:Consolas;color:#78909c;")
         lay.addWidget(self._a_lbl)
 
@@ -276,22 +329,20 @@ class IdentKPanel(QWidget):
         self._pw_ts.addLine(y=0, pen=pg.mkPen("#37474f", width=1,
                                                style=Qt.PenStyle.DashLine))
         self._c_drv  = self._pw_ts.plot(
-            pen=pg.mkPen("#66bb6a", width=2), name="drive × 100 RPM")
+            pen=pg.mkPen("#66bb6a", width=2), name="drive × 100 (%)")
         self._c_rate = self._pw_ts.plot(
             pen=pg.mkPen("#ef5350", width=2), name="pitch_rate (°/s)")
         tl.addWidget(self._pw_ts)
         lay.addWidget(ts_grp, stretch=2)
 
-        # ── Bottom plot: scatter θ̈ vs drive ──────────────────────────────────
-        sc_grp = QGroupBox("Scatter  θ̈  vs  drive  (régression OLS)")
+        # ── Bottom plot: pitch_rate measured vs fitted sinusoid ──────────────
+        sc_grp = QGroupBox("pitch_rate mesuré  vs  fit sinusoïdal  R·sin(ωt+ψ)")
         sc_grp.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
         sl = QVBoxLayout(sc_grp)
         self._pw_sc = pg.PlotWidget()
-        self._pw_sc.setLabel("left",   "θ̈  (°/s²)")
-        self._pw_sc.setLabel("bottom", "drive normalisé")
+        self._pw_sc.setLabel("left",   "pitch_rate  (°/s)")
+        self._pw_sc.setLabel("bottom", "t (s)  (depuis le début du test)")
         self._pw_sc.showGrid(x=True, y=True, alpha=0.2)
-        self._pw_sc.addLine(x=0, pen=pg.mkPen("#37474f", width=1,
-                                               style=Qt.PenStyle.DashLine))
         self._pw_sc.addLine(y=0, pen=pg.mkPen("#37474f", width=1,
                                                style=Qt.PenStyle.DashLine))
         self._sc_pts  = self._pw_sc.plot(
@@ -307,7 +358,7 @@ class IdentKPanel(QWidget):
     # ── Square-wave control ───────────────────────────────────────────────────
 
     def _start(self):
-        if self._running:
+        if self._running or not self._mode_btn.isChecked():
             return
         self._running    = True
         self._phase_pos  = True
@@ -345,10 +396,10 @@ class IdentKPanel(QWidget):
         self._sine_timer.stop()
         self._reg_timer.stop()
         self._plot_timer.stop()
-        self._current_rpm = 0
-        self.send_sp.emit(0)
+        self._current_drive = 0.0
+        self.send_drive.emit(0.0)   # parks at drive=0, stays in identification mode
 
-        self._start_btn.setEnabled(True)
+        self._start_btn.setEnabled(self._mode_btn.isChecked())
         self._status_lbl.setText("⏹ Arrêté")
         self._status_lbl.setStyleSheet(
             "font-size:14px;font-family:Consolas;font-weight:bold;"
@@ -357,24 +408,24 @@ class IdentKPanel(QWidget):
         self._update_regression()
 
     def _toggle_phase(self):
-        amp = self._amp_spin.value()
-        self._current_rpm = amp if self._phase_pos else -amp
-        self._phase_pos   = not self._phase_pos
-        self.send_sp.emit(self._current_rpm)
+        amp = self._amp_spin.value() / 100.0
+        self._current_drive = amp if self._phase_pos else -amp
+        self._phase_pos      = not self._phase_pos
+        self.send_drive.emit(self._current_drive)
 
     def _keepalive(self):
         if self._running:
-            self.send_sp.emit(self._current_rpm)
+            self.send_drive.emit(self._current_drive)
 
     def _sine_tick(self):
         if not self._running:
             return
         elapsed = _time.monotonic() - self._t_start
         period  = self._half_spin.value() * 2.0
-        amp     = self._amp_spin.value()
-        rpm     = int(round(amp * math.sin(2.0 * math.pi * elapsed / period)))
-        self._current_rpm = rpm
-        self.send_sp.emit(rpm)
+        amp     = self._amp_spin.value() / 100.0
+        drive   = amp * math.sin(2.0 * math.pi * elapsed / period)
+        self._current_drive = drive
+        self.send_drive.emit(drive)
 
     def _clear(self):
         self._samples.clear()
@@ -392,103 +443,108 @@ class IdentKPanel(QWidget):
             return
         arr  = np.array(self._samples[-2000:], dtype=float)
         t    = arr[:, 0] - arr[0, 0]
-        drv  = arr[:, 2] * _MAX_RPM         # scale to RPM for readability
+        drv  = arr[:, 2] * 100.0            # scale to % for readability
         rate = arr[:, 3]
         self._c_drv.setData(x=list(t), y=list(drv))
         self._c_rate.setData(x=list(t), y=list(rate))
 
-    # ── OLS regression ────────────────────────────────────────────────────────
+    # ── Sinusoidal (frequency-response) fit ─────────────────────────────────────
 
     def _update_regression(self):
         n = len(self._samples)
         if n < 20:
             return
 
-        arr   = np.array(self._samples, dtype=float)
-        theta = np.deg2rad(arr[:, 1])
-        u     = arr[:, 2]
-        omega = np.deg2rad(arr[:, 3])
-        t     = arr[:, 0]
+        arr      = np.array(self._samples, dtype=float)
+        t        = arr[:, 0] - self._t_start
+        rate_dps = arr[:, 3]
 
-        # Use median dt: serial reader delivers frames in bursts, so
-        # consecutive Python timestamps can be near-identical (→ dt≈0 → θ̈→∞).
-        raw_dt = np.diff(t)
-        dt_med = float(np.median(raw_dt[raw_dt > 1e-4]))
-        if dt_med < 1e-4:
-            return
-        ddot   = np.diff(omega) / dt_med
-        th_mid = (theta[:-1] + theta[1:]) / 2.0
-        u_mid  = (u[:-1] + u[1:]) / 2.0
+        period  = self._half_spin.value() * 2.0
+        omega_w = 2.0 * math.pi / period
+        amp_cmd = self._amp_spin.value() / 100.0
+        # Fourier fundamental amplitude: matches A_u directly for a sine
+        # excitation, or 4/π·A_u for the fundamental of an ideal square wave.
+        amp_eff = amp_cmd * (4.0 / math.pi) if self._wave_combo.currentIndex() == 0 else amp_cmd
 
-        m = len(ddot)
-        if m < 10:
-            return
+        rate_rad = np.deg2rad(rate_dps)
+        s_basis  = np.sin(omega_w * t)
+        c_basis  = np.cos(omega_w * t)
+        A = np.column_stack([s_basis, c_basis, np.ones_like(t)])
+        coeffs, _, _, _ = np.linalg.lstsq(A, rate_rad, rcond=None)
+        p, q, offset = (float(c) for c in coeffs)
 
-        A = np.column_stack([u_mid, th_mid, np.ones(m)])
-        coeffs, _, _, _ = np.linalg.lstsq(A, ddot, rcond=None)
-        K_rad = float(coeffs[0])
-        a_rad = float(coeffs[1])
-        c_rad = float(coeffs[2])
-        K_deg = float(np.rad2deg(K_rad))
+        R   = math.hypot(p, q)        # rad/s — amplitude of the pitch_rate response
+        psi = math.atan2(q, p)        # rad  — phase of pitch_rate vs sin(ωt)
+
+        # |K| from the amplitude ratio is immune to phase lag (a lag only
+        # rotates the (p,q) phasor, it doesn't change its magnitude).
+        K_rad = -math.copysign(1.0, q) * R * omega_w / amp_eff if amp_eff > 1e-6 else 0.0
+        K_deg = math.degrees(K_rad)
 
         y_pred = A @ coeffs
-        SS_res = float(np.sum((ddot - y_pred) ** 2))
-        SS_tot = float(np.sum((ddot - ddot.mean()) ** 2))
+        SS_res = float(np.sum((rate_rad - y_pred) ** 2))
+        SS_tot = float(np.sum((rate_rad - rate_rad.mean()) ** 2))
         r2     = max(0.0, 1.0 - SS_res / max(SS_tot, 1e-12))
 
         try:
-            cov  = np.linalg.inv(A.T @ A) * (SS_res / max(m - 3, 1))
-            se_K = float(np.rad2deg(np.sqrt(max(cov[0, 0], 0.0))))
+            cov     = np.linalg.inv(A.T @ A) * (SS_res / max(n - 3, 1))
+            var_R   = ((p / R) ** 2 * cov[0, 0] + (q / R) ** 2 * cov[1, 1]
+                       + 2.0 * (p / R) * (q / R) * cov[0, 1]) if R > 1e-9 else float("nan")
+            se_K_deg = math.degrees(math.sqrt(max(var_R, 0.0)) * omega_w / amp_eff)
         except np.linalg.LinAlgError:
-            se_K = float("nan")
+            se_K_deg = float("nan")
 
-        col = "#66bb6a" if r2 > 0.55 else "#ffd54f" if r2 > 0.25 else "#ef5350"
-        self._k_lbl.setText(f"K = {K_deg:+.0f}  ±  {se_K:.0f}  °/s²")
+        col = "#66bb6a" if r2 > 0.85 else "#ffd54f" if r2 > 0.5 else "#ef5350"
+        self._k_lbl.setText(f"K = {K_deg:+.0f}  ±  {se_K_deg:.0f}  °/s²")
         self._k_lbl.setStyleSheet(
             f"font-size:20px;font-family:Consolas;font-weight:bold;color:{col};"
         )
-        self._r2_lbl.setText(f"R² = {r2:.3f}   n = {m} pts")
+        self._r2_lbl.setText(f"R² = {r2:.3f}   n = {n} pts")
 
-        if a_rad > 0.1:
-            wn  = float(np.sqrt(a_rad))
-            L   = 9.81 / a_rad
-            self._a_lbl.setText(f"a = {a_rad:.1f} rad/s²  →  ωn={wn:.1f} rad/s,  L={L*100:.1f} cm")
-        else:
-            self._a_lbl.setText(f"a = {a_rad:.1f} rad/s²  (négatif → upside-down ✓)")
+        # Phase diagnostic: ideal value is -90° for a pure K·u term with K>0
+        # (response = integral of θ̈), or +90° if K<0. Deviation from that
+        # ideal phase = extra delay/dynamics.
+        ideal_psi  = -math.pi / 2.0 if K_rad >= 0.0 else math.pi / 2.0
+        extra_phase = psi - ideal_psi
+        extra_phase = ((extra_phase + math.pi) % (2.0 * math.pi)) - math.pi
+        extra_delay_ms = -extra_phase / omega_w * 1000.0
+        self._a_lbl.setText(
+            f"ψ = {math.degrees(psi):+.0f}°  (idéal {math.degrees(ideal_psi):+.0f}°)   "
+            f"retard suppl. ≈ {extra_delay_ms:+.0f} ms"
+        )
 
-        exc = float(np.mean(np.abs(u_mid)))
-        if exc < 0.05:
-            q, qc = "⚠ Excitation trop faible — augmenter amplitude", "#ffd54f"
-        elif r2 < 0.25:
-            q, qc = "⚠ R² faible — bruit ou trop peu de cycles", "#ef5350"
-        elif not np.isnan(se_K) and abs(K_deg) > 0 and se_K / abs(K_deg) > 0.5:
-            q, qc = f"⚠ Incertitude élevée — ajouter des cycles", "#ffd54f"
+        if amp_cmd < 0.05:
+            q_txt, qc = "⚠ Excitation trop faible — augmenter amplitude", "#ffd54f"
+        elif r2 < 0.5:
+            q_txt, qc = "⚠ R² faible — bruit ou signal non périodique", "#ef5350"
+        elif not math.isnan(se_K_deg) and abs(K_deg) > 0 and se_K_deg / abs(K_deg) > 0.3:
+            q_txt, qc = "⚠ Incertitude élevée — ajouter des cycles", "#ffd54f"
         else:
-            q, qc = f"✓ OK  (excitation moy. {exc:.2f})", "#66bb6a"
-        self._q_lbl.setText(q)
+            q_txt, qc = f"✓ OK  (excitation {amp_cmd:.2f}, ψ={math.degrees(psi):+.0f}°)", "#66bb6a"
+        self._q_lbl.setText(q_txt)
         self._q_lbl.setStyleSheet(f"font-size:10px;font-family:Consolas;color:{qc};")
 
         # Store result for JSON export
         self._last_result = {
-            "K_deg_s2":    round(K_deg, 1),
-            "K_sigma_deg_s2": round(se_K, 1) if not np.isnan(se_K) else None,
-            "R2":          round(r2, 4),
-            "a_rad_s2":    round(a_rad, 2),
-            "c_rad_s2":    round(c_rad, 4),
-            "n_pts":       int(m),
-            "excitation_mean": round(float(exc), 3),
-            "quality":     q,
+            "K_deg_s2":                  round(K_deg, 1),
+            "K_sigma_deg_s2":            round(se_K_deg, 1) if not math.isnan(se_K_deg) else None,
+            "R2":                        round(r2, 4),
+            "psi_deg":                   round(math.degrees(psi), 1),
+            "extra_delay_ms":            round(extra_delay_ms, 1),
+            "response_amplitude_deg_s":  round(math.degrees(R), 2),
+            "n_pts":                     int(n),
+            "excitation_amplitude":      round(amp_cmd, 3),
+            "quality":                   q_txt,
         }
         self._save_btn.setEnabled(True)
 
-        # Scatter + fit line
-        ddot_deg = np.rad2deg(ddot)
-        self._sc_pts.setData(x=list(u_mid), y=list(ddot_deg))
-        u_span = float(u_mid.max() - u_mid.min())
-        if u_span > 0.01:
-            u_line    = np.linspace(float(u_mid.min()), float(u_mid.max()), 60)
-            ddot_line = np.rad2deg(K_rad * u_line + a_rad * float(th_mid.mean()) + c_rad)
-            self._sc_fit.setData(x=list(u_line), y=list(ddot_line))
+        # Measured pitch_rate + fitted sinusoid overlay
+        self._sc_pts.setData(x=list(t), y=list(rate_dps))
+        if float(t.max()) > 0.01:
+            t_dense = np.linspace(0.0, float(t.max()), 200)
+            fit_dps = np.rad2deg(p * np.sin(omega_w * t_dense)
+                                  + q * np.cos(omega_w * t_dense) + offset)
+            self._sc_fit.setData(x=list(t_dense), y=list(fit_dps))
 
     # ── JSON export ───────────────────────────────────────────────────────────
 
@@ -513,7 +569,7 @@ class IdentKPanel(QWidget):
             "type": "ident_K",
             "parameters": {
                 "waveform":       self._wave_combo.currentText(),
-                "amplitude_rpm":  self._amp_spin.value(),
+                "amplitude_pct":  self._amp_spin.value(),
                 "half_period_s":  round(self._half_spin.value(), 3),
                 "nb_cycles":      self._ncyc_spin.value(),
             },

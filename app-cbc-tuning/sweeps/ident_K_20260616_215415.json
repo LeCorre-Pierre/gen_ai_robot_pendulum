@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-06-16T21:54:16",
+  "type": "ident_K",
+  "parameters": {
+    "waveform": "Sinus",
+    "amplitude_pct": 50,
+    "half_period_s": 0.4,
+    "nb_cycles": 15
+  },
+  "results": {
+    "K_deg_s2": 4362.9,
+    "K_sigma_deg_s2": 101.9,
+    "R2": 0.8856,
+    "psi_deg": -37.0,
+    "extra_delay_ms": -117.8,
+    "response_amplitude_deg_s": 277.75,
+    "n_pts": 240,
+    "excitation_amplitude": 0.5,
+    "quality": "✓ OK  (excitation 0.50, ψ=-37°)"
+  }
+}

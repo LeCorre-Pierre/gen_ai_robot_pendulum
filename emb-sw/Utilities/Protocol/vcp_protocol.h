@@ -26,6 +26,8 @@
 #define VCP_TYPE_CMD_SET_POS_SP        0x26u   /* position setpoint (cm, relative to origin) */
 #define VCP_TYPE_CMD_SET_POS_TRAJ      0x27u   /* trajectory: mode + amplitude + period */
 #define VCP_TYPE_CMD_SPIN_CTRL         0x28u   /* periodic 360° auto-spin */
+#define VCP_TYPE_CMD_SET_DRIVE         0x29u   /* direct open-loop drive (Ident K / Ident Td) */
+#define VCP_TYPE_CMD_SET_ANGLE_SP      0x2Au   /* angle equilibrium offset [-5..+5] deg */
 
 /* loop_id for SET_BALANCE_GAINS */
 #define VCP_LOOP_ANGLE    0u
@@ -152,6 +154,19 @@ typedef struct __attribute__((packed)) {
     float   interval_s;   /* time between spins (s) */
     float   yaw_force;    /* normalized yaw differential [0.1..0.5] */
 } VcpCmdSpinCtrl_t;
+
+/* VCP_TYPE_CMD_SET_DRIVE — 2 bytes
+ * Direct motor drive command for Ident K / Ident Td : applied to both
+ * wheels identically, bypassing the balance loop entirely (ctrl_mode=2).
+ * Drive resets to 0 if no new command is received for ~300 ms. */
+typedef struct __attribute__((packed)) {
+    int16_t drive_x1000;   /* normalized drive × 1000, range [-1000..+1000] */
+} VcpCmdSetDrive_t;
+
+/* VCP_TYPE_CMD_SET_ANGLE_SP — 4 bytes */
+typedef struct __attribute__((packed)) {
+    float offset_deg;   /* equilibrium offset [-5..+5] deg */
+} VcpCmdSetAngleSp_t;
 
 /* VCP_TYPE_ACK — 2 bytes */
 typedef struct __attribute__((packed)) {

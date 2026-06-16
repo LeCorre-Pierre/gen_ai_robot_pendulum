@@ -31,6 +31,12 @@ static PID_Controller_t           s_pos_pid;
 /* Velocity setpoint (used in velocity mode) */
 static volatile float   s_target_vel_rpm  = 0.0f;
 
+/* Direct drive state (Cas 2 — Ident K / Ident Td, bypasses balance loop) */
+static volatile float    s_direct_drive       = 0.0f;
+static          uint32_t s_direct_drive_ticks = 0U;
+static volatile float    s_angle_sp_offset    = 0.0f;
+#define DIRECT_DRIVE_HOLD_TICKS  60U  /* ~300 ms @ 5 ms loop without a fresh command → drive=0 */
+
 /* Position loop state */
 static volatile float   s_pos_sp_cm       = 0.0f;
 static volatile uint8_t s_traj_mode       = 0U;   /* VCP_TRAJ_HOLD / VCP_TRAJ_SINUS */
@@ -158,6 +164,7 @@ static void ControlTask(void *pvParameters)
             MTR_Init();
             CBC_Reset(&s_cbc);
             PID_Reset(&s_pos_pid);
+            s_angle_sp_offset    = 0.0f;
             s_pos_cm             = 0.0f;
             s_pos_sp_cm          = 0.0f;
             s_traj_t             = 0.0f;
@@ -232,44 +239,63 @@ static void ControlTask(void *pvParameters)
             s_pos_vel_sp     = 0.0f;
         }
 
-        /* Cascade balance: velocity outer loop → angle inner loop */
-        CascadeBalanceOutput_t cbc_out = CBC_Update(&s_cbc,
-            effective_vel_sp, measured_vel,
-            pitch_deg,
-            0.0f, imu.gyro_y_dps);
+        float left_out, right_out, target_pitch_deg_out, drive_output_out;
 
-        float left_out  = cbc_out.left_output;
-        float right_out = cbc_out.right_output;
+        if (s_ctrl_mode == 2U) {
+            /* Cas 2 — Direct drive (Ident K / Ident Td): both wheels driven
+             * identically by the PC command, balance loop fully bypassed so
+             * 'u' is a true exogenous input for the θ̈ = K·u + a·θ + c fit. */
+            s_direct_drive_ticks++;
+            if (s_direct_drive_ticks > DIRECT_DRIVE_HOLD_TICKS) {
+                s_direct_drive = 0.0f;
+            }
+            left_out             = s_direct_drive;
+            right_out            = s_direct_drive;
+            target_pitch_deg_out = 0.0f;
+            drive_output_out     = s_direct_drive;
+            CBC_Reset(&s_cbc);   /* keep integrators clean for re-entry into normal mode */
+        } else {
+            /* Cascade balance: velocity outer loop → angle inner loop */
+            CascadeBalanceOutput_t cbc_out = CBC_Update(&s_cbc,
+                effective_vel_sp, measured_vel,
+                pitch_deg - s_angle_sp_offset,
+                0.0f, imu.gyro_y_dps);
 
-        /* Cas 4 — Spin management and yaw override */
-        if (s_ctrl_mode == 3U) {
-            s_spin_interval_timer += CONTROL_DT_S;
+            left_out             = cbc_out.left_output;
+            right_out            = cbc_out.right_output;
+            target_pitch_deg_out = cbc_out.target_pitch_deg;
+            drive_output_out     = cbc_out.drive_output;
 
-            if (s_spin_active) {
-                /* Spinning: override yaw with fixed differential, balance stays active */
-                left_out  = cbc_out.drive_output - s_spin_yaw_force;
-                right_out = cbc_out.drive_output + s_spin_yaw_force;
-                if (left_out  < -1.0f) { left_out  = -1.0f; }
-                if (left_out  >  1.0f) { left_out  =  1.0f; }
-                if (right_out < -1.0f) { right_out = -1.0f; }
-                if (right_out >  1.0f) { right_out =  1.0f; }
+            /* Cas 4 — Spin management and yaw override */
+            if (s_ctrl_mode == 3U) {
+                s_spin_interval_timer += CONTROL_DT_S;
 
-                s_spin_angle_deg += imu.gyro_y_dps * CONTROL_DT_S;
-                if (s_spin_angle_deg >= 360.0f || s_spin_angle_deg <= -360.0f) {
-                    s_spin_active    = 0U;
-                    s_spin_angle_deg = 0.0f;
+                if (s_spin_active) {
+                    /* Spinning: override yaw with fixed differential, balance stays active */
+                    left_out  = cbc_out.drive_output - s_spin_yaw_force;
+                    right_out = cbc_out.drive_output + s_spin_yaw_force;
+                    if (left_out  < -1.0f) { left_out  = -1.0f; }
+                    if (left_out  >  1.0f) { left_out  =  1.0f; }
+                    if (right_out < -1.0f) { right_out = -1.0f; }
+                    if (right_out >  1.0f) { right_out =  1.0f; }
+
+                    s_spin_angle_deg += imu.gyro_y_dps * CONTROL_DT_S;
+                    if (s_spin_angle_deg >= 360.0f || s_spin_angle_deg <= -360.0f) {
+                        s_spin_active    = 0U;
+                        s_spin_angle_deg = 0.0f;
+                    }
+                } else if (s_spin_interval_timer >= s_spin_interval_s) {
+                    /* Interval elapsed: start a new spin */
+                    s_spin_interval_timer = 0.0f;
+                    s_spin_angle_deg      = 0.0f;
+                    s_spin_active         = 1U;
                 }
-            } else if (s_spin_interval_timer >= s_spin_interval_s) {
-                /* Interval elapsed: start a new spin */
-                s_spin_interval_timer = 0.0f;
-                s_spin_angle_deg      = 0.0f;
-                s_spin_active         = 1U;
             }
         }
 
         s_state.target_vel_rpm   = effective_vel_sp;
-        s_state.target_pitch_deg = cbc_out.target_pitch_deg;
-        s_state.drive_output     = cbc_out.drive_output;
+        s_state.target_pitch_deg = target_pitch_deg_out;
+        s_state.drive_output     = drive_output_out;
         s_state.left_output      = left_out;
         s_state.right_output     = right_out;
         s_state.pos_cm           = s_pos_cm;
@@ -350,6 +376,15 @@ void Task_control_SetVelocitySetpoint(float target_rpm)
     s_ctrl_mode = 0U;  /* back to velocity mode */
 }
 
+void Task_control_SetDirectDrive(float drive_norm)
+{
+    if (drive_norm >  1.0f) { drive_norm =  1.0f; }
+    if (drive_norm < -1.0f) { drive_norm = -1.0f; }
+    s_direct_drive       = drive_norm;
+    s_direct_drive_ticks = 0U;
+    s_ctrl_mode          = 2U;
+}
+
 void Task_control_SetPositionSetpoint(float sp_cm)
 {
     s_pos_sp_cm      = sp_cm;
@@ -385,6 +420,13 @@ void Task_control_SetPositionTraj(uint8_t mode, float amplitude_cm, float period
     }
     s_pos_reset_req = 1U;
     s_ctrl_mode     = 1U;
+}
+
+void Task_control_SetAngleOffset(float offset_deg)
+{
+    if (offset_deg >  5.0f) { offset_deg =  5.0f; }
+    if (offset_deg < -5.0f) { offset_deg = -5.0f; }
+    s_angle_sp_offset = offset_deg;
 }
 
 void Task_control_Init(void)
