@@ -15,6 +15,7 @@
 #define VCP_TYPE_TELEMETRY_IMU   0x11u
 #define VCP_TYPE_TELEMETRY_CALIB 0x12u   /* motor dead-zone calibration stream */
 #define VCP_TYPE_TELEMETRY_POS   0x13u   /* position loop telemetry */
+#define VCP_TYPE_TELEMETRY_POWER 0x14u   /* motor current and power */
 
 /* Downlink  PC → STM32 */
 #define VCP_TYPE_CMD_SET_GAINS         0x20u
@@ -28,6 +29,7 @@
 #define VCP_TYPE_CMD_SPIN_CTRL         0x28u   /* periodic 360° auto-spin */
 #define VCP_TYPE_CMD_SET_DRIVE         0x29u   /* direct open-loop drive (Ident K / Ident Td) */
 #define VCP_TYPE_CMD_SET_ANGLE_SP      0x2Au   /* angle equilibrium offset [-5..+5] deg */
+#define VCP_TYPE_CMD_SET_ANGLE_DIRECT  0x2Bu   /* direct angle setpoint — mode 4 (bypasses velocity PID) */
 
 /* loop_id for SET_BALANCE_GAINS */
 #define VCP_LOOP_ANGLE    0u
@@ -163,10 +165,28 @@ typedef struct __attribute__((packed)) {
     int16_t drive_x1000;   /* normalized drive × 1000, range [-1000..+1000] */
 } VcpCmdSetDrive_t;
 
+/* VCP_TYPE_TELEMETRY_POWER — 12 bytes
+ * Motor current and estimated electrical power per side.
+ * V_nominal = 12 V (battery, not measured).
+ * current_x_ma : current in mA  (range 0..2000, L298 rated 2 A)
+ * power_x_mw   : V_nom × I in mW (range 0..24000) */
+typedef struct __attribute__((packed)) {
+    uint32_t timestamp_ms;
+    int16_t  current_l_ma;   /* left  motor current [mA] */
+    int16_t  current_r_ma;   /* right motor current [mA] */
+    int16_t  power_l_mw;     /* left  motor power   [mW] */
+    int16_t  power_r_mw;     /* right motor power   [mW] */
+} VcpTelPower_t;
+
 /* VCP_TYPE_CMD_SET_ANGLE_SP — 4 bytes */
 typedef struct __attribute__((packed)) {
     float offset_deg;   /* equilibrium offset [-5..+5] deg */
 } VcpCmdSetAngleSp_t;
+
+/* VCP_TYPE_CMD_SET_ANGLE_DIRECT — 4 bytes */
+typedef struct __attribute__((packed)) {
+    float target_deg;   /* target pitch angle [-8..+8] deg — switches to mode 4 */
+} VcpCmdSetAngleDirect_t;
 
 /* VCP_TYPE_ACK — 2 bytes */
 typedef struct __attribute__((packed)) {

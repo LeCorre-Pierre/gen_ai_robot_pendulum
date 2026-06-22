@@ -31,8 +31,8 @@ from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QFont, QRadialGradient
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QComboBox, QDoubleSpinBox, QFrame,
     QGroupBox, QHBoxLayout, QLabel, QMainWindow, QPushButton, QScrollArea,
-    QSizePolicy, QSlider, QSpinBox, QSplitter, QTabWidget, QVBoxLayout,
-    QWidget,
+    QSizePolicy, QSlider, QSpinBox, QSplitter, QStackedWidget, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 import numpy as np
@@ -75,10 +75,12 @@ _TYPE_SET_POS_TRAJ = 0x27
 
 _TRAJ_HOLD  = 0
 _TRAJ_SINUS = 1
-_TYPE_SPIN_CTRL  = 0x28
-_CTRL_SPIN       = 3
-_TYPE_SET_DRIVE  = 0x29
-_TYPE_ANGLE_SP   = 0x2A
+_TYPE_SPIN_CTRL    = 0x28
+_CTRL_SPIN         = 3
+_TYPE_SET_DRIVE    = 0x29
+_TYPE_ANGLE_SP     = 0x2A
+_TYPE_ANGLE_DIRECT = 0x2B   # direct angle mode (mode 4)
+_TYPE_TEL_POWER    = 0x14
 
 # VcpTelPid_t : uint32 + 7×int16 = 18 bytes
 # ts, sp_rpm, pv_l, pv_r, err_l, err_r, pwm_l_x100, pwm_r_x100
@@ -99,6 +101,11 @@ _SZ_CALIB  = struct.calcsize(_FMT_CALIB)  # 12
 # ts_ms, pos_cm_x10, sp_cm_x10, vel_sp_rpm, ctrl_mode, traj_mode
 _FMT_POS = "<IhhhBB"
 _SZ_POS  = struct.calcsize(_FMT_POS)   # 12
+
+# VcpTelPower_t : uint32 + 4×int16 = 12 bytes
+# ts_ms, current_l_ma, current_r_ma, power_l_mw, power_r_mw
+_FMT_POWER = "<Ihhhh"
+_SZ_POWER  = struct.calcsize(_FMT_POWER)  # 12
 
 _RATES    = [5, 10, 20, 50, 100]
 _BAUDS    = ["115200", "230400"]
@@ -147,6 +154,10 @@ def _spin_frame(enable: bool, interval_s: float, yaw_force: float, seq: int) -> 
 def _angle_sp_frame(offset_deg: float, seq: int) -> bytes:
     return _build_frame(_TYPE_ANGLE_SP, struct.pack("<f", offset_deg), seq)
 
+def _angle_direct_frame(target_deg: float, seq: int) -> bytes:
+    target_deg = max(-8.0, min(8.0, target_deg))
+    return _build_frame(_TYPE_ANGLE_DIRECT, struct.pack("<f", target_deg), seq)
+
 def _drive_frame(drive_norm: float, seq: int) -> bytes:
     drive_x1000 = int(round(max(-1.0, min(1.0, drive_norm)) * 1000))
     return _build_frame(_TYPE_SET_DRIVE, struct.pack("<h", drive_x1000), seq)
@@ -171,6 +182,8 @@ class SerialReader(QThread):
     calib_sample = Signal(int, float, float, float, int, int)
     # pos_cm, sp_cm, vel_sp_rpm, ctrl_mode, traj_mode
     pos_sample   = Signal(float, float, float, int, int)
+    # current_l_a, current_r_a, power_l_w, power_r_w
+    power_sample = Signal(float, float, float, float)
     rx_bytes     = Signal(int)
     error        = Signal(str)
 
@@ -266,6 +279,16 @@ class SerialReader(QThread):
                         float(vel_sp),
                         int(ctrl),
                         int(traj),
+                    )
+
+                elif pkt_type == _TYPE_TEL_POWER and plen >= _SZ_POWER:
+                    _ts, cl_ma, cr_ma, pl_mw, pr_mw = \
+                        struct.unpack_from(_FMT_POWER, payload)
+                    self.power_sample.emit(
+                        cl_ma / 1000.0,   # A
+                        cr_ma / 1000.0,   # A
+                        pl_mw / 1000.0,   # W
+                        pr_mw / 1000.0,   # W
                     )
 
             i += total
@@ -689,6 +712,194 @@ class _AngleSpPanel(QGroupBox):
         return self._spin.value()
 
 
+# ── Motion mode panel ─────────────────────────────────────────────────────────
+
+class _MotionModePanel(QGroupBox):
+    """
+    3 locomotion modes (switchable via firmware command):
+      0 – Velocity   : outer loop = velocity setpoint (RPM)
+      1 – Position   : outer loop = position PID  (configured in Position tab)
+      4 – Angle direct : no outer loop, target pitch angle directly
+    """
+
+    vel_sp_cmd       = Signal(int)    # → SET_SP (rpm)
+    angle_direct_cmd = Signal(float)  # → SET_ANGLE_DIRECT (deg)
+
+    _BTN_STYLE_ON  = ("QPushButton { background:#1565c0; color:#e3f2fd; "
+                      "font-weight:bold; border-radius:3px; padding:2px 6px; }")
+    _BTN_STYLE_OFF = ("QPushButton { background:#263238; color:#78909c; "
+                      "font-weight:normal; border-radius:3px; padding:2px 6px; }")
+
+    def __init__(self, parent=None):
+        super().__init__("Mode de déplacement", parent)
+        self.setStyleSheet("QGroupBox { font-weight:bold; font-size:11px; }")
+
+        self._syncing = False
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 12, 8, 8)
+        lay.setSpacing(6)
+
+        # ── Mode buttons ──────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(4)
+        self._btn_vel = QPushButton("Vitesse")
+        self._btn_pos = QPushButton("Position")
+        self._btn_ang = QPushButton("Angle direct")
+        for btn in (self._btn_vel, self._btn_pos, self._btn_ang):
+            btn.setCheckable(True)
+            btn.setFixedHeight(26)
+            btn.setStyleSheet(self._BTN_STYLE_OFF)
+            btn_row.addWidget(btn)
+        self._btn_vel.setChecked(True)
+        self._btn_vel.setStyleSheet(self._BTN_STYLE_ON)
+        lay.addLayout(btn_row)
+
+        # ── Stacked content per mode ─────────────────────────────────────────
+        self._stack = QStackedWidget()
+
+        # Page 0 — Velocity
+        vel_page = QWidget()
+        vl = QVBoxLayout(vel_page)
+        vl.setContentsMargins(0, 2, 0, 0)
+        vl.setSpacing(4)
+        sp_row = QHBoxLayout(); sp_row.setSpacing(6)
+        sp_row.addWidget(QLabel("Consigne :"))
+        self._vel_spin = QSpinBox()
+        self._vel_spin.setRange(-85, 85)
+        self._vel_spin.setValue(0)
+        self._vel_spin.setSuffix(" RPM")
+        self._vel_spin.setFixedWidth(88)
+        self._vel_spin.setStyleSheet("font-family:Consolas;font-size:11px;")
+        sp_row.addWidget(self._vel_spin)
+        sp_row.addStretch()
+        vl.addLayout(sp_row)
+        vsl_row = QHBoxLayout(); vsl_row.setSpacing(4)
+        vsl_lbl_l = QLabel("-85"); vsl_lbl_l.setStyleSheet("font-size:9px;color:#546e7a;")
+        vsl_lbl_r = QLabel("+85"); vsl_lbl_r.setStyleSheet("font-size:9px;color:#546e7a;")
+        self._vel_slider = QSlider(Qt.Orientation.Horizontal)
+        self._vel_slider.setRange(-85, 85)
+        self._vel_slider.setValue(0)
+        vsl_row.addWidget(vsl_lbl_l)
+        vsl_row.addWidget(self._vel_slider, stretch=1)
+        vsl_row.addWidget(vsl_lbl_r)
+        vl.addLayout(vsl_row)
+        vel_btn = QPushButton("↑ Envoyer")
+        vel_btn.setFixedHeight(24)
+        vel_btn.clicked.connect(self._send_vel)
+        vl.addWidget(vel_btn)
+        self._stack.addWidget(vel_page)
+
+        # Page 1 — Position
+        pos_page = QWidget()
+        pl = QVBoxLayout(pos_page)
+        pl.setContentsMargins(0, 2, 0, 0)
+        info = QLabel("→  Configurer depuis l'onglet Position\n"
+                      "   (Hold / Sinusoïde / Tour auto)")
+        info.setStyleSheet("color:#78909c;font-size:10px;font-family:Consolas;")
+        info.setWordWrap(True)
+        pl.addWidget(info)
+        pl.addStretch()
+        self._stack.addWidget(pos_page)
+
+        # Page 2 — Angle direct
+        ang_page = QWidget()
+        al = QVBoxLayout(ang_page)
+        al.setContentsMargins(0, 2, 0, 0)
+        al.setSpacing(4)
+        ang_row = QHBoxLayout(); ang_row.setSpacing(6)
+        ang_row.addWidget(QLabel("Cible :"))
+        self._ang_spin = QDoubleSpinBox()
+        self._ang_spin.setRange(-8.0, 8.0)
+        self._ang_spin.setDecimals(1)
+        self._ang_spin.setSingleStep(0.5)
+        self._ang_spin.setValue(0.0)
+        self._ang_spin.setSuffix(" °")
+        self._ang_spin.setFixedWidth(80)
+        self._ang_spin.setStyleSheet("font-family:Consolas;font-size:11px;")
+        ang_row.addWidget(self._ang_spin)
+        ang_row.addStretch()
+        al.addLayout(ang_row)
+        asl_row = QHBoxLayout(); asl_row.setSpacing(4)
+        asl_lbl_l = QLabel("-8°"); asl_lbl_l.setStyleSheet("font-size:9px;color:#546e7a;")
+        asl_lbl_r = QLabel("+8°"); asl_lbl_r.setStyleSheet("font-size:9px;color:#546e7a;")
+        self._ang_slider = QSlider(Qt.Orientation.Horizontal)
+        self._ang_slider.setRange(-80, 80)   # ×0.1 → [-8..+8]°
+        self._ang_slider.setValue(0)
+        asl_row.addWidget(asl_lbl_l)
+        asl_row.addWidget(self._ang_slider, stretch=1)
+        asl_row.addWidget(asl_lbl_r)
+        al.addLayout(asl_row)
+        ang_btn = QPushButton("↑ Envoyer")
+        ang_btn.setFixedHeight(24)
+        ang_btn.clicked.connect(self._send_ang)
+        al.addWidget(ang_btn)
+        self._stack.addWidget(ang_page)
+
+        lay.addWidget(self._stack)
+
+        # ── Internal connections ───────────────────────────────────────────────
+        self._btn_vel.clicked.connect(lambda: self._set_mode(0))
+        self._btn_pos.clicked.connect(lambda: self._set_mode(1))
+        self._btn_ang.clicked.connect(lambda: self._set_mode(2))
+
+        self._vel_slider.valueChanged.connect(self._on_vel_slider)
+        self._vel_spin.valueChanged.connect(self._on_vel_spin)
+        self._ang_slider.valueChanged.connect(self._on_ang_slider)
+        self._ang_spin.valueChanged.connect(self._on_ang_spin)
+
+    # ── Private ───────────────────────────────────────────────────────────────
+
+    def _set_mode(self, idx: int, send_cmd: bool = True):
+        for i, btn in enumerate((self._btn_vel, self._btn_pos, self._btn_ang)):
+            btn.setChecked(i == idx)
+            btn.setStyleSheet(self._BTN_STYLE_ON if i == idx else self._BTN_STYLE_OFF)
+        self._stack.setCurrentIndex(idx)
+        if send_cmd:
+            if idx == 0:
+                self._send_vel()
+            elif idx == 2:
+                self._send_ang()
+
+    def _on_vel_slider(self, v: int):
+        if self._syncing: return
+        self._syncing = True
+        self._vel_spin.setValue(v)
+        self._syncing = False
+
+    def _on_vel_spin(self, v: int):
+        if self._syncing: return
+        self._syncing = True
+        self._vel_slider.setValue(v)
+        self._syncing = False
+
+    def _on_ang_slider(self, v: int):
+        if self._syncing: return
+        self._syncing = True
+        self._ang_spin.setValue(v / 10.0)
+        self._syncing = False
+
+    def _on_ang_spin(self, v: float):
+        if self._syncing: return
+        self._syncing = True
+        self._ang_slider.setValue(int(round(v * 10)))
+        self._syncing = False
+
+    def _send_vel(self):
+        self.vel_sp_cmd.emit(self._vel_spin.value())
+
+    def _send_ang(self):
+        self.angle_direct_cmd.emit(self._ang_spin.value())
+
+    # ── Public ────────────────────────────────────────────────────────────────
+
+    def sync_from_firmware(self, ctrl_mode: int):
+        """Reflect firmware ctrl_mode in the button group (no command sent back)."""
+        idx = {0: 0, 1: 1, 4: 2}.get(ctrl_mode, -1)
+        if idx >= 0:
+            self._set_mode(idx, send_cmd=False)
+
+
 # ── Angle PID panel ───────────────────────────────────────────────────────────
 
 class _AnglePidPanel(QGroupBox):
@@ -765,9 +976,9 @@ class _VelocityPidPanel(QGroupBox):
         lay.setContentsMargins(8, 12, 8, 8)
         lay.setSpacing(4)
 
-        self._kp = _PidRow("Kp", 0.100)
-        self._ki = _PidRow("Ki", 0.050)
-        self._kd = _PidRow("Kd", 0.020)
+        self._kp = _PidRow("Kp", 0.500)
+        self._ki = _PidRow("Ki", 0.200)
+        self._kd = _PidRow("Kd", 0.100)
 
         self._debounce = QTimer(singleShot=True, interval=300)
         self._debounce.timeout.connect(self._send)
@@ -1479,14 +1690,16 @@ class _PositionPanel(QWidget):
             (2, 0): "DRIVE DIRECT",
             (3, 0): "SPIN – attente",
             (3, 1): "SPIN – rotation",
+            (4, 0): "ANGLE DIRECT",
         }.get((ctrl_mode, traj_mode), "—")
         c_mode = {
-            "VELOCITY":      "#78909c",
-            "HOLD":          "#42a5f5",
-            "SINUS":         "#66bb6a",
-            "DRIVE DIRECT":  "#ab47bc",
-            "SPIN – attente":"#ffd54f",
+            "VELOCITY":       "#78909c",
+            "HOLD":           "#42a5f5",
+            "SINUS":          "#66bb6a",
+            "DRIVE DIRECT":   "#ab47bc",
+            "SPIN – attente": "#ffd54f",
             "SPIN – rotation":"#ff7043",
+            "ANGLE DIRECT":   "#26c6da",
         }.get(mode_str, "#e0e0e0")
 
         # Update spin button and status label to reflect firmware state
@@ -1529,6 +1742,200 @@ class _PositionPanel(QWidget):
         self._t0 = None
         self._c_pos.setData([], [])
         self._c_sp.setData([], [])
+
+
+# ── Power panel ──────────────────────────────────────────────────────────────
+
+class _PowerPanel(QWidget):
+    """Live current (A) and electrical power (W) per motor, left/right separated."""
+
+    _NPTS    = 6000   # ~5 min at 20 Hz
+    _WIN_S   = 30.0   # default scroll window
+
+    _VAL_STYLE = "color:#e0e0e0;font-size:13px;font-family:Consolas;font-weight:bold;"
+    _LBL_STYLE = "color:#78909c;font-size:11px;font-family:Consolas;"
+    _UNI_STYLE = "color:#546e7a;font-size:11px;font-family:Consolas;"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._t0: float | None = None
+        self._t_buf  : deque[float] = deque(maxlen=self._NPTS)
+        self._cl_buf : deque[float] = deque(maxlen=self._NPTS)
+        self._cr_buf : deque[float] = deque(maxlen=self._NPTS)
+        self._pl_buf : deque[float] = deque(maxlen=self._NPTS)
+        self._pr_buf : deque[float] = deque(maxlen=self._NPTS)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(6)
+        splitter.addWidget(self._build_readout())
+        splitter.addWidget(self._build_plots())
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([200, 700])
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(splitter)
+
+        self._plot_timer = QTimer(self, interval=100)
+        self._plot_timer.timeout.connect(self._refresh_plots)
+        self._plot_timer.start()
+
+    # ── Build ─────────────────────────────────────────────────────────────────
+
+    def _build_readout(self) -> QWidget:
+        box = QGroupBox("Valeurs temps réel")
+        box.setStyleSheet("QGroupBox{font-weight:bold;font-size:11px;}")
+        box.setMinimumWidth(190)
+        box.setMaximumWidth(240)
+
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(8, 14, 8, 8)
+        lay.setSpacing(4)
+
+        self._rv: dict[str, QLabel] = {}
+
+        def _sec(text: str):
+            l = QLabel(text)
+            l.setStyleSheet(
+                "color:#42a5f5;font-size:10px;font-family:Consolas;"
+                "font-weight:bold;margin-top:6px;"
+            )
+            lay.addWidget(l)
+
+        def _row(key: str, label: str, unit: str):
+            h = QHBoxLayout()
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(4)
+            lbl = QLabel(label); lbl.setStyleSheet(self._LBL_STYLE); lbl.setFixedWidth(90)
+            val = QLabel("—");   val.setStyleSheet(self._VAL_STYLE)
+            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            uni = QLabel(unit);  uni.setStyleSheet(self._UNI_STYLE); uni.setFixedWidth(28)
+            h.addWidget(lbl); h.addWidget(val, stretch=1); h.addWidget(uni)
+            lay.addLayout(h)
+            self._rv[key] = val
+
+        _sec("── Moteur Gauche ───────")
+        _row("cl", "Courant",  "A")
+        _row("pl", "Puissance","W")
+
+        _sec("── Moteur Droite ───────")
+        _row("cr", "Courant",  "A")
+        _row("pr", "Puissance","W")
+
+        _sec("── Total ────────────────")
+        _row("pt", "Puissance","W")
+
+        clear_btn = QPushButton("Effacer")
+        clear_btn.setFixedHeight(26)
+        clear_btn.clicked.connect(self.clear)
+        lay.addStretch()
+        lay.addWidget(clear_btn)
+
+        return box
+
+    def _build_plots(self) -> QWidget:
+        vsplit = QSplitter(Qt.Orientation.Vertical)
+        vsplit.setHandleWidth(5)
+
+        # ── Current plot ──────────────────────────────────────────────────────
+        self._pw_current = pg.PlotWidget(title="Courant moteurs (A)")
+        self._pw_current.showGrid(x=True, y=True, alpha=0.25)
+        self._pw_current.setLabel("left", "courant (A)")
+        self._pw_current.setLabel("bottom", "temps (s)")
+        self._pw_current.addLegend(offset=(10, 10))
+        self._pw_current.addLine(y=0, pen=pg.mkPen("#37474f", width=1,
+                                                    style=Qt.PenStyle.DashLine))
+        self._c_cl = self._pw_current.plot(
+            pen=pg.mkPen("#ef5350", width=2), name="I gauche")
+        self._c_cr = self._pw_current.plot(
+            pen=pg.mkPen("#ff8a65", width=2), name="I droite")
+        for c in (self._c_cl, self._c_cr):
+            c.setDownsampling(auto=True, method="subsample")
+            c.setClipToView(True)
+
+        # ── Power plot ────────────────────────────────────────────────────────
+        self._pw_power = pg.PlotWidget(title="Puissance électrique (W)  —  V×I, Vnom=12V")
+        self._pw_power.showGrid(x=True, y=True, alpha=0.25)
+        self._pw_power.setLabel("left", "puissance (W)")
+        self._pw_power.setLabel("bottom", "temps (s)")
+        self._pw_power.addLegend(offset=(10, 10))
+        self._pw_power.addLine(y=0, pen=pg.mkPen("#37474f", width=1,
+                                                  style=Qt.PenStyle.DashLine))
+        self._c_pl = self._pw_power.plot(
+            pen=pg.mkPen("#ef5350", width=2), name="P gauche")
+        self._c_pr = self._pw_power.plot(
+            pen=pg.mkPen("#ff8a65", width=2), name="P droite")
+        self._c_pt = self._pw_power.plot(
+            pen=pg.mkPen("#ffd54f", width=2,
+                         style=Qt.PenStyle.DashLine), name="P total")
+        for c in (self._c_pl, self._c_pr, self._c_pt):
+            c.setDownsampling(auto=True, method="subsample")
+            c.setClipToView(True)
+
+        vsplit.addWidget(self._pw_current)
+        vsplit.addWidget(self._pw_power)
+        vsplit.setSizes([300, 300])
+        return vsplit
+
+    # ── Public slots ─────────────────────────────────────────────────────────
+
+    def on_power_sample(self, curr_l: float, curr_r: float,
+                        pow_l: float, pow_r: float):
+        now = _time.monotonic()
+        if self._t0 is None:
+            self._t0 = now
+        self._t_buf.append(now - self._t0)
+        self._cl_buf.append(curr_l)
+        self._cr_buf.append(curr_r)
+        self._pl_buf.append(pow_l)
+        self._pr_buf.append(pow_r)
+
+        def _fmt_a(v: float) -> str:
+            c = "#ef5350" if v > 1.5 else "#ffd54f" if v > 0.8 else "#e0e0e0"
+            return f'<span style="color:{c}">{v:.3f}</span>'
+
+        def _fmt_w(v: float) -> str:
+            c = "#ef5350" if v > 18.0 else "#ffd54f" if v > 9.0 else "#e0e0e0"
+            return f'<span style="color:{c}">{v:.1f}</span>'
+
+        self._rv["cl"].setText(_fmt_a(curr_l)); self._rv["cl"].setTextFormat(Qt.TextFormat.RichText)
+        self._rv["cr"].setText(_fmt_a(curr_r)); self._rv["cr"].setTextFormat(Qt.TextFormat.RichText)
+        self._rv["pl"].setText(_fmt_w(pow_l));  self._rv["pl"].setTextFormat(Qt.TextFormat.RichText)
+        self._rv["pr"].setText(_fmt_w(pow_r));  self._rv["pr"].setTextFormat(Qt.TextFormat.RichText)
+        self._rv["pt"].setText(_fmt_w(pow_l + pow_r)); self._rv["pt"].setTextFormat(Qt.TextFormat.RichText)
+
+    def clear(self):
+        for d in (self._t_buf, self._cl_buf, self._cr_buf, self._pl_buf, self._pr_buf):
+            d.clear()
+        self._t0 = None
+        for c in (self._c_cl, self._c_cr, self._c_pl, self._c_pr, self._c_pt):
+            c.setData([], [])
+        for key in self._rv:
+            self._rv[key].setText("—")
+
+    # ── Internal ─────────────────────────────────────────────────────────────
+
+    def _refresh_plots(self):
+        n = len(self._t_buf)
+        if n < 2:
+            return
+        t  = np.fromiter(self._t_buf, float, n)
+        cl = np.fromiter(self._cl_buf, float, n)
+        cr = np.fromiter(self._cr_buf, float, n)
+        pl = np.fromiter(self._pl_buf, float, n)
+        pr = np.fromiter(self._pr_buf, float, n)
+        pt = pl + pr
+        t_now = t[-1]
+        mask  = t >= (t_now - self._WIN_S)
+        tw    = t[mask]
+        self._c_cl.setData(x=tw, y=cl[mask])
+        self._c_cr.setData(x=tw, y=cr[mask])
+        self._c_pl.setData(x=tw, y=pl[mask])
+        self._c_pr.setData(x=tw, y=pr[mask])
+        self._c_pt.setData(x=tw, y=pt[mask])
+        for pw in (self._pw_current, self._pw_power):
+            pw.setXRange(t_now - self._WIN_S, t_now, padding=0)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1676,6 +2083,8 @@ class CbcTuner(QMainWindow):
         self._ident_a_panel  = IdentAPanel()
         self._sim_panel         = SimPanel()
         self._sim_panel.request_snapshot.connect(self._on_snapshot_request)
+        self._sim_panel.apply_angle_gains.connect(self._on_sim_apply_angle_gains)
+        self._sim_panel.apply_vel_gains.connect(self._on_sim_apply_vel_gains)
         self._motor_calib_panel = MotorCalibPanel()
 
         self._right_tabs.addTab(self._planner_panel,      "Plan")
@@ -1696,6 +2105,9 @@ class CbcTuner(QMainWindow):
         self._pos_panel.spin_cmd.connect(self._send_spin)
         self._pos_panel.vel_mode_cmd.connect(lambda: self._send_sp(0))
         self._right_tabs.addTab(self._pos_panel, "Position")
+
+        self._power_panel = _PowerPanel()
+        self._right_tabs.addTab(self._power_panel, "Courant")
 
         self._ident_k_panel.send_drive.connect(self._send_drive)
         self._ident_k_panel.send_sp.connect(self._send_sp)
@@ -1725,6 +2137,11 @@ class CbcTuner(QMainWindow):
         lay = QVBoxLayout(container)
         lay.setContentsMargins(4, 4, 4, 4)
         lay.setSpacing(10)
+
+        self._motion_panel = _MotionModePanel()
+        self._motion_panel.vel_sp_cmd.connect(self._send_sp)
+        self._motion_panel.angle_direct_cmd.connect(self._send_angle_direct)
+        lay.addWidget(self._motion_panel)
 
         self._angle_panel = _AnglePidPanel()
         self._angle_panel.apply_requested.connect(
@@ -1867,6 +2284,7 @@ class CbcTuner(QMainWindow):
         self._reader.pid_sample.connect(self._on_pid)
         self._reader.calib_sample.connect(self._motor_calib_panel.on_calib_packet)
         self._reader.pos_sample.connect(self._on_pos)
+        self._reader.power_sample.connect(self._power_panel.on_power_sample)
         self._reader.rx_bytes.connect(self._on_rx)
         self._reader.error.connect(self._on_err)
         self._reader.start()
@@ -1930,6 +2348,16 @@ class CbcTuner(QMainWindow):
         self._tx_seq = (self._tx_seq + 1) & 0xFF
         self._i_accum = 0.0  # reset intégrateur local à chaque changement de gains
 
+    def _on_sim_apply_angle_gains(self, kp: float, ki: float, kd: float):
+        """Apply gains selected in the angle simulation heatmap to the robot and the left panel."""
+        self._angle_panel.set_gains(kp, ki, kd)
+        self._send_gains(0, kp, ki, kd)
+
+    def _on_sim_apply_vel_gains(self, kp: float, ki: float, kd: float):
+        """Apply gains selected in the velocity simulation heatmap to the robot and the left panel."""
+        self._velocity_panel.set_gains(kp, ki, kd)
+        self._send_gains(1, kp, ki, kd)
+
     def _send_motor_calib(self, enable: bool):
         if not self._reader:
             return
@@ -1954,6 +2382,12 @@ class CbcTuner(QMainWindow):
         if not self._reader:
             return
         self._reader.write(_angle_sp_frame(offset_deg, self._tx_seq))
+        self._tx_seq = (self._tx_seq + 1) & 0xFF
+
+    def _send_angle_direct(self, target_deg: float):
+        if not self._reader:
+            return
+        self._reader.write(_angle_direct_frame(target_deg, self._tx_seq))
         self._tx_seq = (self._tx_seq + 1) & 0xFF
 
     def _on_snapshot_request(self, duration_s: float):
@@ -1986,6 +2420,7 @@ class CbcTuner(QMainWindow):
     def _on_pos(self, pos_cm: float, sp_cm: float, vel_sp_rpm: float,
                 ctrl_mode: int, traj_mode: int):
         self._pos_panel.on_pos_sample(pos_cm, sp_cm, vel_sp_rpm, ctrl_mode, traj_mode)
+        self._motion_panel.sync_from_firmware(ctrl_mode)
 
     def _send_pos_sp(self, sp_cm: float):
         if not self._reader:
@@ -2144,6 +2579,7 @@ class CbcTuner(QMainWindow):
         for c in (self._c_pitch, self._c_pid_p, self._c_pid_i, self._c_pid_d, self._c_drive,
                   self._c_sp_rpm, self._c_rpm_l, self._c_rpm_r, self._c_pwm_l, self._c_pwm_r):
             c.setData([], [])
+        self._power_panel.clear()
         self._i_accum = 0.0
         self._t_prev  = None
         self._pkt_cnt = 0

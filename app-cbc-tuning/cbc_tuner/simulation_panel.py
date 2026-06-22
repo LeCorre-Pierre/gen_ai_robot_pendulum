@@ -216,11 +216,20 @@ class _RobotViz(QWidget):
 # ── Main panel ────────────────────────────────────────────────────────────────
 
 class SimPanel(QWidget):
-    request_snapshot = Signal(float)   # duration_s — demande données live
+    request_snapshot  = Signal(float)                # duration_s — demande données live
+    apply_angle_gains = Signal(float, float, float)  # kp, ki, kd → robot + panneau angle
+    apply_vel_gains   = Signal(float, float, float)  # kp, ki, kd → robot + panneau vitesse
 
     _DEF_A   = 6.56   # mesure Ident a — 8 essais, régression poolée, a=6.562±0.016 rad/s
     _DEF_K   = 4400.0 # mesure Ident K — fit sinusoïdal, plusieurs mesures
     _DEF_TAU = 0.005  # mesure Ident Td — td≈5 ms (période contrôle 200 Hz)
+
+    # Velocity simulation model defaults
+    _VEL_DT      = 0.02    # 50 Hz velocity loop
+    _VEL_SAFE    = 150.0   # RPM divergence threshold
+    _VEL_DEF_K   = 18.0   # RPM/s per degree of pitch (empirical)
+    _VEL_DEF_TAU = 0.9    # mechanical time constant (s)
+    _VEL_P_MAX   = 8.0    # max target pitch degrees (firmware limit)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -231,7 +240,7 @@ class SimPanel(QWidget):
         self._snap_theta = None   # angle mesuré (live snapshot)
         self._shown_ij   = None   # (i, j) du dernier essai affiché (heatmap ou tableau)
 
-        # sweep state
+        # angle sweep state
         self._sweep_kp_vals = None
         self._sweep_kd_vals = None
         self._sweep_res     = None
@@ -239,6 +248,16 @@ class SimPanel(QWidget):
         self._sweep_i       = 0
         self._sweep_timer   = QTimer(self, interval=0)
         self._sweep_timer.timeout.connect(self._sweep_next_row)
+
+        # velocity sweep state
+        self._vsw_kp_vals  = None
+        self._vsw_ki_vals  = None
+        self._vsw_res      = None
+        self._vsw_abort    = False
+        self._vsw_i        = 0
+        self._vsw_shown_ij = None
+        self._vsw_timer    = QTimer(self, interval=0)
+        self._vsw_timer.timeout.connect(self._vsw_next_row)
 
         # debounce timer for instant sim
         self._debounce = QTimer(self, singleShot=True, interval=30)
@@ -263,8 +282,9 @@ class SimPanel(QWidget):
         ll.addWidget(self._build_sys_grp())
 
         self._left_tabs = QTabWidget()
-        self._left_tabs.addTab(self._build_manual_tab(), "Manuel")
-        self._left_tabs.addTab(self._build_sweep_tab(),  "Sweep")
+        self._left_tabs.addTab(self._build_manual_tab(),     "Manuel")
+        self._left_tabs.addTab(self._build_sweep_tab(),      "Sweep angle")
+        self._left_tabs.addTab(self._build_vel_sweep_tab(),  "Sweep vitesse")
         self._left_tabs.currentChanged.connect(
             lambda i: self._right_stack.setCurrentIndex(i))
         ll.addWidget(self._left_tabs, stretch=1)
@@ -273,6 +293,7 @@ class SimPanel(QWidget):
         self._right_stack = QStackedWidget()
         self._right_stack.addWidget(self._build_manual_plots())
         self._right_stack.addWidget(self._build_sweep_plots())
+        self._right_stack.addWidget(self._build_vel_sweep_plots())
         root.addWidget(self._right_stack, stretch=1)
 
     # ── System params (shared) ────────────────────────────────────────────────
@@ -463,7 +484,7 @@ class SimPanel(QWidget):
         self._sw_table.cellClicked.connect(self._on_table_row_click)
         ll.addWidget(self._sw_table)
 
-        apply_btn = QPushButton("→ Appliquer dans Manuel")
+        apply_btn = QPushButton("→ Appliquer sur le robot")
         apply_btn.setFixedHeight(24); apply_btn.clicked.connect(self._apply_selected)
         ll.addWidget(apply_btn)
         ll.addStretch()
@@ -824,13 +845,368 @@ class SimPanel(QWidget):
         self._sel_info.setPos(0.0, -_SAFETY + 2)
 
     def _apply_selected(self):
-        sel = self._sw_table.selectedItems()
-        if not sel: return
-        item = self._sw_table.item(sel[0].row(), 0)
-        if item is None: return
-        i, j = item.data(Qt.ItemDataRole.UserRole)
-        self._r_kp.set_value(self._sweep_kp_vals[i])
-        self._r_kd.set_value(self._sweep_kd_vals[j])
-        self._r_ki.set_value(self._ki_fixed.value())
-        self._left_tabs.setCurrentIndex(0)
-        self._schedule_instant()
+        if self._shown_ij is not None:
+            i, j = self._shown_ij
+        else:
+            sel = self._sw_table.selectedItems()
+            if not sel: return
+            item = self._sw_table.item(sel[0].row(), 0)
+            if item is None: return
+            i, j = item.data(Qt.ItemDataRole.UserRole)
+        if self._sweep_kp_vals is None: return
+        kp = float(self._sweep_kp_vals[i])
+        ki = float(self._ki_fixed.value())
+        kd = float(self._sweep_kd_vals[j])
+        self.apply_angle_gains.emit(kp, ki, kd)
+
+    # ── Velocity sweep tab ────────────────────────────────────────────────────
+
+    def _build_vel_sweep_tab(self):
+        w = QWidget()
+        ll = QVBoxLayout(w); ll.setContentsMargins(2, 2, 2, 2); ll.setSpacing(5)
+
+        # ── System model params ───────────────────────────────────────────────
+        gb_sys = QGroupBox("Modèle vitesse  —  v̇ = K·θ_cible − v/τ")
+        gb_sys.setStyleSheet("QGroupBox{font-weight:bold;font-size:10px;}")
+        sl = QVBoxLayout(gb_sys); sl.setContentsMargins(6, 14, 6, 6); sl.setSpacing(4)
+        self._vr_k   = _Row("Gain K",  self._VEL_DEF_K,   0.1, 200.0, 1, 1.0, "rpm/s/°")
+        self._vr_tau = _Row("τ méca",  self._VEL_DEF_TAU, 0.1, 10.0,  2, 0.1, "s")
+        self._vr_vtg = _Row("v cible", 20.0,              1.0, 85.0,   0, 5.0, "RPM")
+        for r in (self._vr_k, self._vr_tau, self._vr_vtg):
+            sl.addWidget(r)
+        ll.addWidget(gb_sys)
+
+        # ── Gain ranges ───────────────────────────────────────────────────────
+        gb_sw = QGroupBox("Plage des gains")
+        gb_sw.setStyleSheet("QGroupBox{font-weight:bold;font-size:10px;}")
+        rsl = QVBoxLayout(gb_sw); rsl.setContentsMargins(6, 14, 6, 6); rsl.setSpacing(3)
+
+        def _range_row(label, def_lo, def_hi, def_n, dec=3):
+            h = QHBoxLayout(); h.setContentsMargins(0,0,0,0); h.setSpacing(3)
+            l = QLabel(label)
+            l.setStyleSheet("font-size:10px;color:#cccccc;font-family:Consolas;"); l.setFixedWidth(22)
+            h.addWidget(l)
+            lo = QDoubleSpinBox(); lo.setRange(0.0, 100.0); lo.setDecimals(dec); lo.setValue(def_lo)
+            lo.setFixedWidth(60); lo.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
+            h.addWidget(lo); h.addWidget(QLabel("→"))
+            hi = QDoubleSpinBox(); hi.setRange(0.0, 100.0); hi.setDecimals(dec); hi.setValue(def_hi)
+            hi.setFixedWidth(60); hi.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
+            h.addWidget(hi); h.addWidget(QLabel("N"))
+            n = QSpinBox(); n.setRange(2, 9999); n.setValue(def_n); n.setFixedWidth(52)
+            h.addWidget(n)
+            rsl.addLayout(h)
+            return lo, hi, n
+
+        self._vkp_lo, self._vkp_hi, self._vkp_n = _range_row("Kp", 0.00, 0.30, 8)
+        self._vki_lo, self._vki_hi, self._vki_n = _range_row("Ki", 0.00, 0.15, 8)
+
+        kd_row = QHBoxLayout(); kd_row.setContentsMargins(0,0,0,0); kd_row.setSpacing(4)
+        kd_row.addWidget(QLabel("Kd fixe"))
+        self._vkd_fixed = QDoubleSpinBox(); self._vkd_fixed.setRange(0.0, 10.0)
+        self._vkd_fixed.setDecimals(3); self._vkd_fixed.setValue(0.0); self._vkd_fixed.setFixedWidth(60)
+        kd_row.addWidget(self._vkd_fixed); kd_row.addStretch()
+        rsl.addLayout(kd_row)
+
+        dur_row = QHBoxLayout(); dur_row.setContentsMargins(0,0,0,0); dur_row.setSpacing(4)
+        dur_row.addWidget(QLabel("Durée"))
+        self._vsw_dur = QDoubleSpinBox(); self._vsw_dur.setRange(1.0, 60.0)
+        self._vsw_dur.setValue(5.0); self._vsw_dur.setDecimals(1); self._vsw_dur.setSuffix("s")
+        self._vsw_dur.setFixedWidth(56); dur_row.addWidget(self._vsw_dur); dur_row.addStretch()
+        rsl.addLayout(dur_row)
+        ll.addWidget(gb_sw)
+
+        self._vsw_count_lbl = QLabel("8 × 8 = 64 essais")
+        self._vsw_count_lbl.setStyleSheet("font-size:9px;color:#78909c;font-family:Consolas;")
+        ll.addWidget(self._vsw_count_lbl)
+        for s in (self._vkp_n, self._vki_n):
+            s.valueChanged.connect(self._vsw_update_count)
+
+        br = QHBoxLayout()
+        self._vsw_run_btn = QPushButton("▶ Lancer sweep")
+        self._vsw_run_btn.setFixedHeight(28)
+        self._vsw_run_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:white;font-weight:bold;border-radius:3px;}"
+            "QPushButton:hover{background:#1976d2;}"
+            "QPushButton:disabled{background:#37474f;color:#546e7a;}")
+        self._vsw_run_btn.clicked.connect(self._vsw_launch)
+        br.addWidget(self._vsw_run_btn)
+        self._vsw_stop_btn = QPushButton("⏹"); self._vsw_stop_btn.setFixedWidth(32)
+        self._vsw_stop_btn.setFixedHeight(28); self._vsw_stop_btn.setEnabled(False)
+        self._vsw_stop_btn.clicked.connect(self._vsw_stop)
+        br.addWidget(self._vsw_stop_btn)
+        ll.addLayout(br)
+
+        self._vsw_progress = QProgressBar()
+        self._vsw_progress.setRange(0, 100); self._vsw_progress.setValue(0)
+        self._vsw_progress.setFixedHeight(12)
+        ll.addWidget(self._vsw_progress)
+        self._vsw_status_lbl = QLabel("—")
+        self._vsw_status_lbl.setStyleSheet("font-size:9px;color:#78909c;font-family:Consolas;")
+        ll.addWidget(self._vsw_status_lbl)
+
+        mr = QHBoxLayout(); mr.setContentsMargins(0,0,0,0)
+        mr.addWidget(QLabel("Couleur :"))
+        self._vsw_metric_combo = QComboBox()
+        self._vsw_metric_combo.addItems(["RMS erreur (RPM)", "Dépassement (%)", "Settling (s)"])
+        self._vsw_metric_combo.setFixedHeight(22)
+        self._vsw_metric_combo.currentIndexChanged.connect(self._vsw_refresh_heatmap)
+        mr.addWidget(self._vsw_metric_combo); mr.addStretch()
+        ll.addLayout(mr)
+
+        self._vsw_table = QTableWidget(0, 5)
+        self._vsw_table.setHorizontalHeaderLabels(["Kp", "Ki", "Kd", "RMS rpm", "OS%"])
+        self._vsw_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._vsw_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._vsw_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._vsw_table.setStyleSheet("font-size:10px;font-family:Consolas;")
+        self._vsw_table.setMaximumHeight(150)
+        self._vsw_table.cellClicked.connect(self._on_vsw_table_click)
+        ll.addWidget(self._vsw_table)
+
+        vapply_btn = QPushButton("→ Appliquer sur le robot (vitesse)")
+        vapply_btn.setFixedHeight(24)
+        vapply_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:white;font-weight:bold;border-radius:3px;}"
+            "QPushButton:hover{background:#388e3c;}")
+        vapply_btn.clicked.connect(self._apply_vel_selected)
+        ll.addWidget(vapply_btn)
+        ll.addStretch()
+        return w
+
+    # ── Velocity sweep plots ──────────────────────────────────────────────────
+
+    def _build_vel_sweep_plots(self):
+        w = QWidget()
+        lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(4)
+
+        self._vpw_heat = pg.PlotWidget()
+        self._vpw_heat.setBackground("#1e1e1e")
+        self._vpw_heat.setLabel("bottom", "Kp"); self._vpw_heat.setLabel("left", "Ki")
+        self._vpw_heat.setTitle("Heatmap Kp × Ki  (vert=bon, rouge=mauvais, rouge foncé=diverge)")
+        self._vpw_heat.showGrid(x=True, y=True, alpha=0.15)
+        self._vheat_img = pg.ImageItem()
+        self._vheat_img.mouseClickEvent = self._on_vsw_heat_click
+        self._vpw_heat.addItem(self._vheat_img)
+        self._vheat_sel = pg.ScatterPlotItem(
+            size=14, pen=pg.mkPen("white", width=2), brush=pg.mkBrush(None))
+        self._vpw_heat.addItem(self._vheat_sel)
+        lay.addWidget(self._vpw_heat, stretch=2)
+
+        self._vpw_sel = pg.PlotWidget()
+        self._vpw_sel.setBackground("#1e1e1e")
+        self._vpw_sel.setTitle("Essai sélectionné — vitesse (RPM)")
+        self._vpw_sel.setLabel("bottom", "t (s)"); self._vpw_sel.setLabel("left", "vitesse (RPM)")
+        self._vpw_sel.showGrid(x=True, y=True, alpha=0.2)
+        self._vpw_sel.addLine(y=0, pen=pg.mkPen("#546e7a", width=1, style=Qt.PenStyle.DashLine))
+        self._vsel_target = pg.InfiniteLine(angle=0, pen=pg.mkPen("#66bb6a", width=1,
+                                                                    style=Qt.PenStyle.DashLine))
+        self._vpw_sel.addItem(self._vsel_target)
+        self._vsel_curve = self._vpw_sel.plot(pen=pg.mkPen("#ffd54f", width=2))
+        self._vsel_info  = pg.TextItem("Cliquer sur une cellule", anchor=(0, 1), color="#90a4ae")
+        self._vpw_sel.addItem(self._vsel_info)
+        lay.addWidget(self._vpw_sel, stretch=1)
+        return w
+
+    # ── Velocity trial runner ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _run_vel_trial(K_vel, tau_vel, kp, ki, kd, v_target, duration_s):
+        dt = SimPanel._VEL_DT
+        P_MAX = SimPanel._VEL_P_MAX
+        n = int(duration_s / dt)
+
+        v = 0.0; i_acc = 0.0; v_prev = 0.0; valid = n
+
+        vs = np.empty(n)
+
+        for step in range(n):
+            err = v_target - v
+            i_acc = max(-50.0, min(50.0, i_acc + err * dt))
+            d_err = (v - v_prev) / dt if step > 0 else 0.0
+            pitch_t = kp * err + ki * i_acc - kd * d_err
+            pitch_t = max(-P_MAX, min(P_MAX, pitch_t))
+            v += (K_vel * pitch_t - v / tau_vel) * dt
+            v_prev = v
+            vs[step] = v
+            if abs(v) >= SimPanel._VEL_SAFE:
+                valid = step + 1; break
+
+        survived = valid == n
+        v_arr = vs[:valid]
+
+        overshoot = max(0.0, (float(np.max(v_arr)) / v_target - 1.0) * 100.0) if (survived and v_target > 0) else 999.0
+        last_n = max(1, int(min(1.0, valid * dt) / dt))
+        rms_err = float(np.std(v_arr[-last_n:] - v_target)) if survived else 999.0
+
+        # settling: last step where |v - v_target| / v_target > 10%
+        if survived and v_target > 0:
+            out_of_band = np.where(np.abs(v_arr - v_target) > abs(v_target) * 0.10)[0]
+            settled_t = float(out_of_band[-1] * dt) if len(out_of_band) else 0.0
+        else:
+            settled_t = float("inf")
+
+        return {
+            "survived": survived, "rms_err": rms_err,
+            "overshoot_pct": overshoot, "settled_t": settled_t,
+            "vs": vs, "valid": valid,
+        }
+
+    # ── Velocity sweep execution ──────────────────────────────────────────────
+
+    def _vsw_update_count(self):
+        n = self._vkp_n.value() * self._vki_n.value()
+        self._vsw_count_lbl.setText(
+            f"{self._vkp_n.value()} × {self._vki_n.value()} = {n} essais")
+
+    def _vsw_launch(self):
+        self._vsw_kp_vals = np.linspace(self._vkp_lo.value(), self._vkp_hi.value(), self._vkp_n.value())
+        self._vsw_ki_vals = np.linspace(self._vki_lo.value(), self._vki_hi.value(), self._vki_n.value())
+        n_kp = len(self._vsw_kp_vals); n_ki = len(self._vsw_ki_vals)
+        self._vsw_res = [[None]*n_ki for _ in range(n_kp)]
+        self._vsw_abort = False; self._vsw_i = 0
+        self._vsw_progress.setValue(0); self._vsw_table.setRowCount(0)
+        self._vheat_img.clear()
+        self._vsw_run_btn.setEnabled(False); self._vsw_stop_btn.setEnabled(True)
+        self._vsw_timer.start()
+
+    def _vsw_next_row(self):
+        i = self._vsw_i
+        n_kp = len(self._vsw_kp_vals); n_ki = len(self._vsw_ki_vals)
+        if i >= n_kp or self._vsw_abort:
+            self._vsw_finish(); return
+        kp = self._vsw_kp_vals[i]; kd = self._vkd_fixed.value()
+        K = self._vr_k.value(); tau = self._vr_tau.value(); vtg = self._vr_vtg.value()
+        dur = self._vsw_dur.value()
+        for j, ki in enumerate(self._vsw_ki_vals):
+            self._vsw_res[i][j] = self._run_vel_trial(K, tau, kp, ki, kd, vtg, dur)
+        done = (i + 1) * n_ki; total = n_kp * n_ki
+        self._vsw_progress.setValue(int(done * 100 / total))
+        self._vsw_status_lbl.setText(f"{done}/{total}  Kp={kp:.3f}")
+        self._vsw_refresh_heatmap()
+        self._vsw_i += 1
+
+    def _vsw_stop(self): self._vsw_abort = True
+
+    def _vsw_finish(self):
+        self._vsw_timer.stop()
+        self._vsw_run_btn.setEnabled(True); self._vsw_stop_btn.setEnabled(False)
+        self._vsw_progress.setValue(100 if not self._vsw_abort else self._vsw_progress.value())
+        if self._vsw_res is None: return
+        n_kp = len(self._vsw_kp_vals); n_ki = len(self._vsw_ki_vals)
+        if not self._vsw_abort:
+            surv = sum(1 for i in range(n_kp) for j in range(n_ki)
+                       if self._vsw_res[i][j] and self._vsw_res[i][j]["survived"])
+            self._vsw_status_lbl.setText(f"Terminé — {surv}/{n_kp*n_ki} survivants")
+        else:
+            self._vsw_status_lbl.setText("Interrompu.")
+        self._vsw_refresh_heatmap()
+        self._vsw_fill_table()
+
+    def _vsw_refresh_heatmap(self):
+        if self._vsw_res is None: return
+        kp_vals = self._vsw_kp_vals; ki_vals = self._vsw_ki_vals
+        n_kp = len(kp_vals); n_ki = len(ki_vals)
+        metric = self._vsw_metric_combo.currentIndex()
+
+        vals = np.full((n_kp, n_ki), np.nan)
+        for i in range(n_kp):
+            for j in range(n_ki):
+                r = self._vsw_res[i][j]
+                if r is None or not r["survived"]: continue
+                vals[i, j] = (r["rms_err"], r["overshoot_pct"],
+                               r["settled_t"] if r["settled_t"] != float("inf") else 30.0)[metric]
+
+        valid = vals[~np.isnan(vals)]
+        vmin = float(valid.min()) if len(valid) else 0.0
+        vmax = float(valid.max()) if len(valid) else 1.0
+        if vmax == vmin: vmax = vmin + 1.0
+
+        img = np.zeros((n_kp, n_ki, 4), dtype=np.uint8)
+        for i in range(n_kp):
+            for j in range(n_ki):
+                r = self._vsw_res[i][j]
+                if r is None:
+                    img[i, j] = [30, 30, 30, 255]
+                elif not r["survived"]:
+                    img[i, j] = [120, 20, 20, 255]
+                else:
+                    t = float(np.clip((vals[i, j] - vmin) / (vmax - vmin), 0.0, 1.0))
+                    img[i, j] = ([int(255*t*2), 200, 0, 255] if t < 0.5
+                                  else [200, int(200*(1-(t-0.5)*2)), 0, 255])
+
+        self._vheat_img.setImage(img, autoLevels=False)
+        if n_kp > 1 and n_ki > 1:
+            kp_s = (kp_vals[-1]-kp_vals[0])/(n_kp-1)
+            ki_s = (ki_vals[-1]-ki_vals[0])/(n_ki-1)
+            self._vheat_img.setRect(QRectF(
+                kp_vals[0]-kp_s/2, ki_vals[0]-ki_s/2,
+                kp_vals[-1]-kp_vals[0]+kp_s, ki_vals[-1]-ki_vals[0]+ki_s))
+
+    def _vsw_fill_table(self):
+        if self._vsw_res is None: return
+        kd = self._vkd_fixed.value(); rows = []
+        for i, kp in enumerate(self._vsw_kp_vals):
+            for j, ki in enumerate(self._vsw_ki_vals):
+                r = self._vsw_res[i][j]
+                if r and r["survived"]:
+                    rows.append((r["rms_err"], kp, ki, kd, r["overshoot_pct"], i, j))
+        rows.sort(key=lambda x: x[0])
+        top = rows[:15]; self._vsw_table.setRowCount(len(top))
+        for ri, (rms, kp, ki, kd_, os, _i, _j) in enumerate(top):
+            for ci, val in enumerate([f"{kp:.3f}", f"{ki:.3f}", f"{kd_:.3f}",
+                                       f"{rms:.2f}", f"{os:.1f}"]):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if ci == 3:
+                    item.setForeground(QColor(
+                        "#66bb6a" if rms < 2.0 else ("#ffd54f" if rms < 6.0 else "#ef9a9a")))
+                item.setData(Qt.ItemDataRole.UserRole, (_i, _j))
+                self._vsw_table.setItem(ri, ci, item)
+
+    def _on_vsw_table_click(self, row, _col):
+        item = self._vsw_table.item(row, 0)
+        if item: self._vsw_show_trial(*item.data(Qt.ItemDataRole.UserRole))
+
+    def _on_vsw_heat_click(self, ev):
+        if ev.button() != Qt.MouseButton.LeftButton or self._vsw_res is None:
+            return
+        pos = ev.pos()
+        n_kp = len(self._vsw_kp_vals); n_ki = len(self._vsw_ki_vals)
+        i = max(0, min(n_kp-1, int(pos.x())))
+        j = max(0, min(n_ki-1, int(pos.y())))
+        self._vsw_show_trial(i, j); ev.accept()
+
+    def _vsw_show_trial(self, i, j):
+        if self._vsw_res is None: return
+        r = self._vsw_res[i][j]
+        if r is None: return
+        kp = self._vsw_kp_vals[i]; ki = self._vsw_ki_vals[j]; kd = self._vkd_fixed.value()
+        self._vsw_shown_ij = (i, j)
+        self._vheat_sel.setData(x=[kp], y=[ki])
+        vtg = self._vr_vtg.value()
+        self._vsel_target.setValue(vtg)
+        v = r["valid"]
+        t = np.arange(v) * self._VEL_DT
+        self._vsel_curve.setData(x=list(t), y=list(r["vs"][:v]))
+        status = "OK" if r["survived"] else f"DIVERGE t={v*self._VEL_DT:.2f}s"
+        os_str = f"{r['overshoot_pct']:.1f}%" if r["survived"] else "—"
+        st_str = f"{r['settled_t']:.2f}s" if r["survived"] and r["settled_t"] != float("inf") else "∞"
+        self._vsel_info.setText(
+            f"Kp={kp:.3f}  Ki={ki:.3f}  Kd={kd:.3f}  |  "
+            f"{status}  RMS={r['rms_err']:.2f} rpm  OS={os_str}  settled={st_str}")
+        self._vsel_info.setPos(0.0, 0.0)
+
+    def _apply_vel_selected(self):
+        if self._vsw_shown_ij is not None:
+            i, j = self._vsw_shown_ij
+        else:
+            sel = self._vsw_table.selectedItems()
+            if not sel: return
+            item = self._vsw_table.item(sel[0].row(), 0)
+            if item is None: return
+            i, j = item.data(Qt.ItemDataRole.UserRole)
+        if self._vsw_kp_vals is None: return
+        kp = float(self._vsw_kp_vals[i])
+        ki = float(self._vsw_ki_vals[j])
+        kd = float(self._vkd_fixed.value())
+        self.apply_vel_gains.emit(kp, ki, kd)

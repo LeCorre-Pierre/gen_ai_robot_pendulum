@@ -297,7 +297,7 @@ static void MX_ADC1_Init(void)
 
     /* STM32WB5 a un seul ADC — pas de multi-mode */
     hadc1.Instance                   = ADC1;
-    hadc1.Init.ClockPrescaler        = ADC_CLOCK_ASYNC_DIV1;
+    hadc1.Init.ClockPrescaler        = ADC_CLOCK_SYNC_PCLK_DIV4; /* 64MHz/4=16MHz, pas besoin de RCC_ADCCLKSOURCE */
     hadc1.Init.Resolution            = ADC_RESOLUTION_12B;
     hadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
     hadc1.Init.ScanConvMode          = ADC_SCAN_DISABLE;

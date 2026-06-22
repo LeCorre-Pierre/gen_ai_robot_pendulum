@@ -60,6 +60,7 @@ static void Comms_SendPidTelemetry(const ControlState_t *cs);
 static void Comms_SendImuTelemetry(const ControlState_t *cs);
 static void Comms_SendCalibTelemetry(const ControlState_t *cs);
 static void Comms_SendPosTelemetry(const ControlState_t *cs);
+static void Comms_SendPowerTelemetry(const ControlState_t *cs);
 static void Comms_SendAck(uint8_t cmd_type, uint8_t status);
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
@@ -304,6 +305,15 @@ static void Comms_Dispatch(const VcpPacket_t *pkt)
         break;
     }
 
+    case VCP_TYPE_CMD_SET_ANGLE_DIRECT: {
+        if (pkt->len < (uint16_t)sizeof(VcpCmdSetAngleDirect_t)) { break; }
+        VcpCmdSetAngleDirect_t cmd;
+        memcpy(&cmd, pkt->payload, sizeof(cmd));
+        Task_control_SetAngleDirect(cmd.target_deg);
+        Comms_SendAck(VCP_TYPE_CMD_SET_ANGLE_DIRECT, 0U);
+        break;
+    }
+
     default:
         break;
     }
@@ -430,6 +440,36 @@ static void Comms_SendCalibTelemetry(const ControlState_t *cs)
     }
 }
 
+#define MTR_V_NOMINAL_V  12.0f   /* battery nominal voltage — not measured */
+
+static void Comms_SendPowerTelemetry(const ControlState_t *cs)
+{
+    extern UART_HandleTypeDef huart1;
+
+    float power_l_w = MTR_V_NOMINAL_V * cs->current_l_a;
+    float power_r_w = MTR_V_NOMINAL_V * cs->current_r_a;
+
+    VcpTelPower_t tel;
+    tel.timestamp_ms = HAL_GetTick();
+    tel.current_l_ma = (int16_t)(cs->current_l_a * 1000.0f);
+    tel.current_r_ma = (int16_t)(cs->current_r_a * 1000.0f);
+    tel.power_l_mw   = (int16_t)(power_l_w * 1000.0f);
+    tel.power_r_mw   = (int16_t)(power_r_w * 1000.0f);
+
+    uint8_t tx_buf[TX_BUF_SIZE];
+    VcpPacket_t pkt;
+    pkt.type    = VCP_TYPE_TELEMETRY_POWER;
+    pkt.flags   = 0U;
+    pkt.seq     = s_tx_seq++;
+    pkt.len     = (uint16_t)sizeof(VcpTelPower_t);
+    pkt.payload = (uint8_t *)&tel;
+
+    int n = VcpProtocol_Frame(&pkt, tx_buf, sizeof(tx_buf));
+    if (n > 0) {
+        HAL_UART_Transmit(&huart1, tx_buf, (uint16_t)n, 10U);
+    }
+}
+
 static void Comms_SendAck(uint8_t cmd_type, uint8_t status)
 {
     extern UART_HandleTypeDef huart1;
@@ -489,6 +529,7 @@ static void CommsTask(void *pvParameters)
                 Comms_SendImuTelemetry(&cs);
                 Comms_SendPidTelemetry(&cs);
                 Comms_SendPosTelemetry(&cs);
+                Comms_SendPowerTelemetry(&cs);
             }
         }
 

@@ -18,6 +18,7 @@
 
 #define COMPLEMENTARY_ALPHA      0.98f
 #define IMU_MAX_MISS             3U
+#define CURRENT_ALPHA            0.2f  /* EMA passe-bas courant ADC (τ≈20ms, fc≈6Hz) */
 
 /* Wheel geometry — adjust if actual wheel diameter differs */
 #define WHEEL_DIAMETER_CM     6.5f
@@ -35,6 +36,7 @@ static volatile float   s_target_vel_rpm  = 0.0f;
 static volatile float    s_direct_drive       = 0.0f;
 static          uint32_t s_direct_drive_ticks = 0U;
 static volatile float    s_angle_sp_offset    = 0.0f;
+static volatile float    s_target_angle_deg   = 0.0f;  /* mode 4 direct angle setpoint */
 #define DIRECT_DRIVE_HOLD_TICKS  60U  /* ~300 ms @ 5 ms loop without a fresh command → drive=0 */
 
 /* Position loop state */
@@ -139,6 +141,10 @@ static void ControlTask(void *pvParameters)
             s_state.drive_output = drive;
             s_state.vel_l_rpm    = MTR_GetVelocityRPM(MTR_LEFT);
             s_state.vel_r_rpm    = MTR_GetVelocityRPM(MTR_RIGHT);
+            s_state.current_l_a  = CURRENT_ALPHA * MTR_GetCurrentA(MTR_LEFT)
+                                 + (1.0f - CURRENT_ALPHA) * s_state.current_l_a;
+            s_state.current_r_a  = CURRENT_ALPHA * MTR_GetCurrentA(MTR_RIGHT)
+                                 + (1.0f - CURRENT_ALPHA) * s_state.current_r_a;
             s_state.calib_phase  = step->phase;
             s_state.calib_active = 1U;
 
@@ -165,6 +171,7 @@ static void ControlTask(void *pvParameters)
             CBC_Reset(&s_cbc);
             PID_Reset(&s_pos_pid);
             s_angle_sp_offset    = 0.0f;
+            s_target_angle_deg   = 0.0f;
             s_pos_cm             = 0.0f;
             s_pos_sp_cm          = 0.0f;
             s_traj_t             = 0.0f;
@@ -254,6 +261,27 @@ static void ControlTask(void *pvParameters)
             target_pitch_deg_out = 0.0f;
             drive_output_out     = s_direct_drive;
             CBC_Reset(&s_cbc);   /* keep integrators clean for re-entry into normal mode */
+        } else if (s_ctrl_mode == 4U) {
+            /* Cas 4 — Angle direct: inner angle PID only, velocity PID bypassed.
+             * The user directly sets target_pitch_deg; no outer velocity loop. */
+            float pitch_err_meas = pitch_deg - s_angle_sp_offset;
+            drive_output_out = PID_Update(&s_cbc.angle_pid,
+                                          s_target_angle_deg,
+                                          pitch_err_meas);
+            if (drive_output_out >  s_cbc.max_drive_output) { drive_output_out =  s_cbc.max_drive_output; }
+            if (drive_output_out < -s_cbc.max_drive_output) { drive_output_out = -s_cbc.max_drive_output; }
+            target_pitch_deg_out = s_target_angle_deg;
+            {
+                float yaw4 = PID_Update(&s_cbc.yaw_pid, 0.0f, imu.gyro_y_dps);
+                if (yaw4 >  s_cbc.max_yaw_output) { yaw4 =  s_cbc.max_yaw_output; }
+                if (yaw4 < -s_cbc.max_yaw_output) { yaw4 = -s_cbc.max_yaw_output; }
+                left_out  = drive_output_out + yaw4;
+                if (left_out  >  1.0f) { left_out  =  1.0f; }
+                if (left_out  < -1.0f) { left_out  = -1.0f; }
+                right_out = drive_output_out - yaw4;
+                if (right_out >  1.0f) { right_out =  1.0f; }
+                if (right_out < -1.0f) { right_out = -1.0f; }
+            }
         } else {
             /* Cascade balance: velocity outer loop → angle inner loop */
             CascadeBalanceOutput_t cbc_out = CBC_Update(&s_cbc,
@@ -309,6 +337,11 @@ static void ControlTask(void *pvParameters)
 
         MTR_SetDifferential(-left_out, -right_out);
 
+        s_state.current_l_a = CURRENT_ALPHA * MTR_GetCurrentA(MTR_LEFT)
+                            + (1.0f - CURRENT_ALPHA) * s_state.current_l_a;
+        s_state.current_r_a = CURRENT_ALPHA * MTR_GetCurrentA(MTR_RIGHT)
+                            + (1.0f - CURRENT_ALPHA) * s_state.current_r_a;
+
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_TASK_PERIOD_MS));
     }
 }
@@ -338,6 +371,8 @@ void Task_control_GetState(ControlState_t *out)
     out->calib_active     = s_state.calib_active;
     out->spin_active      = s_state.spin_active;
     out->spin_angle_deg   = s_state.spin_angle_deg;
+    out->current_l_a      = s_state.current_l_a;
+    out->current_r_a      = s_state.current_r_a;
 }
 
 void Task_control_StartCalib(void)
@@ -427,6 +462,16 @@ void Task_control_SetAngleOffset(float offset_deg)
     if (offset_deg >  5.0f) { offset_deg =  5.0f; }
     if (offset_deg < -5.0f) { offset_deg = -5.0f; }
     s_angle_sp_offset = offset_deg;
+}
+
+void Task_control_SetAngleDirect(float angle_deg)
+{
+    if (angle_deg >  8.0f) { angle_deg =  8.0f; }
+    if (angle_deg < -8.0f) { angle_deg = -8.0f; }
+    s_target_angle_deg = angle_deg;
+    PID_Reset(&s_cbc.velocity_pid);
+    PID_Reset(&s_pos_pid);
+    s_ctrl_mode = 4U;
 }
 
 void Task_control_Init(void)
