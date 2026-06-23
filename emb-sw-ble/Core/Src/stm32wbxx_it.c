@@ -254,9 +254,10 @@ void PUSH_BUTTON_SW_EXTI_IRQHandler(void)
   * @param  None
   * @retval None
   */
+extern TIM_HandleTypeDef htim17;   /* HAL timebase — stm32wbxx_hal_timebase_tim.c */
 void TIM1_TRG_COM_TIM17_IRQHandler(void)
 {
-  /* BSP PWM LED not used in step-1 BLE bring-up */
+  HAL_TIM_IRQHandler(&htim17);
 }
 
 void RTC_WKUP_IRQHandler(void)

@@ -74,7 +74,8 @@ void HAL_MspInit(void)
 
   /* Peripheral interrupt init */
   /* HSEM_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(HSEM_IRQn, 0, 0);
+  /* Priority >= configMAX_SYSCALL_INTERRUPT_PRIORITY (5) for FreeRTOS ISR-safe calls */
+  HAL_NVIC_SetPriority(HSEM_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(HSEM_IRQn);
 
   /* USER CODE BEGIN MspInit 1 */
@@ -97,6 +98,11 @@ void HAL_IPCC_MspInit(IPCC_HandleTypeDef* hipcc)
   /* USER CODE END IPCC_MspInit 0 */
     /* Peripheral clock enable */
     __HAL_RCC_IPCC_CLK_ENABLE();
+    /* IPCC interrupt Init - priority 5 (FreeRTOS ISR-safe, calls osThreadFlagsSet) */
+    HAL_NVIC_SetPriority(IPCC_C1_RX_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(IPCC_C1_RX_IRQn);
+    HAL_NVIC_SetPriority(IPCC_C1_TX_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(IPCC_C1_TX_IRQn);
   /* USER CODE BEGIN IPCC_MspInit 1 */
 
   /* USER CODE END IPCC_MspInit 1 */
@@ -242,7 +248,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     __HAL_LINKDMA(huart,hdmatx,hdma_usart1_tx);
 
     /* USART1 interrupt Init */
-    HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
   /* USER CODE BEGIN USART1_MspInit 1 */
 
