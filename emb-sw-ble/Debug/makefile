@@ -10,6 +10,8 @@ RM := rm -rf
 # All of the sources participating in the build are defined here
 -include sources.mk
 -include Utilities/lpm/tiny_lpm/subdir.mk
+-include Utilities/LCD/subdir.mk
+-include Utilities/AngleEstimator/subdir.mk
 -include Startup/subdir.mk
 -include STM32_WPAN/Target/subdir.mk
 -include STM32_WPAN/App/subdir.mk
@@ -24,6 +26,9 @@ RM := rm -rf
 -include Middlewares/STM32_WPAN/ble/core/template/subdir.mk
 -include Middlewares/STM32_WPAN/ble/core/auto/subdir.mk
 -include Drivers/STM32WBxx_HAL_Driver/Src/subdir.mk
+-include Drivers/BSP/STM32WB5MM-DK/subdir.mk
+-include Drivers/BSP/Components/ssd1315/subdir.mk
+-include Drivers/BSP/Components/ism330dhcx/subdir.mk
 -include Core/Src/subdir.mk
 -include objects.mk
 

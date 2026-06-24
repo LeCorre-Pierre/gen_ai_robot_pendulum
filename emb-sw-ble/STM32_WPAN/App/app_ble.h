@@ -69,6 +69,8 @@ typedef enum
 /* Exported functions ---------------------------------------------*/
 void APP_BLE_Init(void);
 APP_BLE_ConnStatus_t APP_BLE_Get_Server_Connection_Status(void);
+uint32_t APP_BLE_GetConnCount(void);
+uint32_t APP_BLE_GetDiscCount(void);
 
 /* USER CODE BEGIN EF */
 void APP_BLE_Key_Button1_Action(void);

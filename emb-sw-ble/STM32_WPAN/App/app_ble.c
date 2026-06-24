@@ -33,6 +33,9 @@
 #include "stm32_lpm.h"
 #include "otp.h"
 
+#include "robot_stm.h"
+#include "robot_app.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -207,6 +210,10 @@ PLACE_IN_SECTION("TAG_OTA_START") const uint32_t MagicKeywordAddress = (uint32_t
 static BleApplicationContext_t BleApplicationContext;
 static uint16_t AdvIntervalMin, AdvIntervalMax;
 
+/* Debug counters (shown on OLED) */
+static volatile uint32_t g_ble_conn_count = 0;
+static volatile uint32_t g_ble_disc_count = 0;
+
 static const char a_LocalName[] = {AD_TYPE_COMPLETE_LOCAL_NAME ,'R','o','b','o','t','P','e','n','d'};
 uint8_t a_ManufData[14] = {sizeof(a_ManufData)-1,
                            AD_TYPE_MANUFACTURER_SPECIFIC_DATA,
@@ -379,7 +386,9 @@ void APP_BLE_Init(void)
 #endif /* BLE_CFG_OTA_REBOOT_CHAR != 0 */
 
   /* USER CODE BEGIN APP_BLE_Init_3 */
-  /* Robot Service will be initialized here at step 3 (Robot_STM_Init / Robot_App_Init) */
+  /* Robot Service (Command + Telemetry) */
+  Robot_STM_Init();
+  Robot_App_Init();
   /* USER CODE END APP_BLE_Init_3 */
 
   /**
@@ -444,7 +453,7 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *p_Pckt)
                     p_disconnection_complete_event->Reason);
 
         /* USER CODE BEGIN EVT_DISCONN_COMPLETE_2 */
-
+        g_ble_disc_count++;
         /* USER CODE END EVT_DISCONN_COMPLETE_2 */
       }
 
@@ -554,7 +563,7 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *p_Pckt)
           }
           BleApplicationContext.BleApplicationContext_legacy.connectionHandle = p_connection_complete_event->Connection_Handle;
           /* USER CODE BEGIN HCI_EVT_LE_CONN_COMPLETE */
-
+          g_ble_conn_count++;
           /* USER CODE END HCI_EVT_LE_CONN_COMPLETE */
           break; /* HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE */
         }
@@ -704,6 +713,16 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *p_Pckt)
 APP_BLE_ConnStatus_t APP_BLE_Get_Server_Connection_Status(void)
 {
   return BleApplicationContext.Device_Connection_Status;
+}
+
+uint32_t APP_BLE_GetConnCount(void)
+{
+  return g_ble_conn_count;
+}
+
+uint32_t APP_BLE_GetDiscCount(void)
+{
+  return g_ble_disc_count;
 }
 
 /* USER CODE BEGIN FD*/

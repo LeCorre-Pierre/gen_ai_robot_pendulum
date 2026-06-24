@@ -25,6 +25,12 @@
 #include "dbg_trace.h"
 #include "hw_conf.h"
 #include "otp.h"
+#include "stm32wb5mm_dk.h"
+#include "stm32wb5mm_dk_lcd.h"
+#include "stm32_lcd.h"
+#include "fonts.h"
+#include "task_display.h"
+#include "task_sensors.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -111,8 +117,27 @@ int main(void)
   MX_RF_Init();
   /* USER CODE BEGIN 2 */
 
+  /* OLED display (SSD1315 over SPI1) — show BLE status */
+  BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+  UTIL_LCD_SetFuncDriver(&LCD_Driver);  /* SetFunc before SetDevice */
+  UTIL_LCD_SetDevice(0);
+  BSP_LCD_DisplayOn(0);
+  UTIL_LCD_SetFont(&Font12);
+  UTIL_LCD_SetTextColor(SSD1315_COLOR_WHITE);
+  UTIL_LCD_SetBackColor(SSD1315_COLOR_BLACK);
+  BSP_LCD_Clear(0, SSD1315_COLOR_BLACK);
+  UTIL_LCD_DisplayStringAt(0, 2,  (uint8_t *)"RobotPend", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, 20, (uint8_t *)"BLE ready", CENTER_MODE);
+  BSP_LCD_Refresh(0);
+
   /* Init scheduler (CMSIS-RTOS2 / FreeRTOS) before creating BLE tasks in MX_APPE_Init */
   osKernelInitialize();
+
+  /* OLED display task (BLE status + debug counters) */
+  Task_Display_Init();
+
+  /* IMU sensor task (real pitch angle) */
+  Sensors_Init();
   /* USER CODE END 2 */
 
   /* Init code for STM32_WPAN */

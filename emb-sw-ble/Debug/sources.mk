@@ -23,6 +23,9 @@ C_DEPS :=
 # Every subdirectory with source files must be described here
 SUBDIRS := \
 Core/Src \
+Drivers/BSP/Components/ism330dhcx \
+Drivers/BSP/Components/ssd1315 \
+Drivers/BSP/STM32WB5MM-DK \
 Drivers/STM32WBxx_HAL_Driver/Src \
 Middlewares/STM32_WPAN/ble/core/auto \
 Middlewares/STM32_WPAN/ble/core/template \
@@ -37,5 +40,7 @@ Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang \
 STM32_WPAN/App \
 STM32_WPAN/Target \
 Startup \
+Utilities/AngleEstimator \
+Utilities/LCD \
 Utilities/lpm/tiny_lpm \
 
