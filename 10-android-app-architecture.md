@@ -1,22 +1,26 @@
-# Android App — Architecture
+# Smartphone App — Architecture
 
-This document describes the technical architecture of the Android app defined in `9-android-app.md`. It covers the app structure, BLE GATT profile, binary protocols, data flows, and testing strategy. It is the reference for the Android developer and the STM32 firmware developer working on the BLE stack.
+> **Status (2026-06-25):** BLE GATT profile fully implemented in firmware (`emb-sw-ble`). All command IDs and telemetry frame tested with nRF Connect. Balance loop active. App not yet started — this document is the reference spec for the developer.
+
+This document describes the technical architecture of the smartphone app defined in `9-android-app.md`. It covers the app structure, BLE GATT profile, binary protocols, data flows, and testing strategy. It is the reference for the app developer and the STM32 firmware developer working on the BLE stack.
 
 ---
 
 ## Tech Stack
 
-| Concern | Choice | Rationale |
+**Recommended: Flutter** (single codebase → Android + iOS).
+
+| Concern | Flutter choice | Rationale |
 |---|---|---|
-| Language | Kotlin | First-class Android support, coroutines, null safety |
-| UI | Jetpack Compose | Declarative, no XML, animates well for live data |
-| Architecture | MVVM + Clean Architecture | Testable, lifecycle-safe, standard in modern Android |
-| Async | Coroutines + Flow | Replaces RxJava; first-class Kotlin, less boilerplate |
-| BLE | Nordic Android-BLE-Library | Handles queuing, bonding, reconnect — raw Android BLE API is error-prone |
-| DI | Hilt | Standard Dagger wrapper, minimal boilerplate |
-| Settings | DataStore (Preferences) | Replaces SharedPreferences; coroutine-native, crash-safe |
-| Navigation | Compose NavController | Single-activity, no fragments |
-| Min SDK | API 29 (Android 10) | Covers >95% of active devices |
+| Language | Dart | Strong typing, async/await, fast UI |
+| UI | Flutter widgets | Cross-platform, 60/120 Hz animations |
+| Architecture | Riverpod + Repository pattern | Reactive, testable, no code gen required |
+| BLE | `flutter_blue_plus` | Most maintained Flutter BLE lib; handles scan/connect/notify |
+| Settings | `shared_preferences` or `flutter_secure_storage` | Simple KV store |
+| Navigation | `go_router` | Declarative, deep-link ready |
+| Min version | Android 10 / iOS 14 | Covers >95% of active devices |
+
+*Alternative (Android-only):* Kotlin + Jetpack Compose + Nordic Android-BLE-Library — same architecture layers apply.
 
 ---
 
@@ -117,9 +121,10 @@ com.robot.pendulum/
 ### Advertising
 
 The robot advertises its presence with:
-- **Local name:** `"RobotPendulum"`
-- **Advertising interval:** 100 ms (fast mode while unpaired), 1 s (slow mode after first bond)
-- The app filters scan results by local name so the user always sees the correct device.
+- **Complete Local Name (AD type 0x09):** `"RobotPend"` ← confirmed in `app_ble.c`
+- **GAP device name (GATT):** `"RobotPendulum"` (readable via Generic Access service)
+- **Advertising interval:** ~100 ms (fast mode), configurable
+- The app filters scan results by local name (`"RobotPend"`) so the user always sees the correct device.
 
 ### Services and Characteristics
 
@@ -161,7 +166,11 @@ All values are **little-endian**. Fixed-size frames, no framing overhead needed 
 | `0x06` | DEMO_SINUS_SWEEP | `width: uint8, period_ds: uint8` | 3 bytes |
 | `0x07` | DEMO_STOP | _(none)_ | 1 byte |
 
-`speed` and `turn` in DRIVE: signed int8 in range [−100, +100], mapping to normalized motor command [−1.0, +1.0]. Value 0 = stop.
+`speed` and `turn` in DRIVE: signed int8 in range [−100, +100].
+- `speed` → velocity setpoint for cascade balance controller: `speed/100 × 30 RPM` (max ±30 RPM)
+- `turn` → yaw rate setpoint: `turn/100 × 90 °/s` (max ±90 °/s)
+- Value 0 on both = hold balance at zero velocity.
+- **These are setpoints to the balance loop, NOT direct PWM** — the robot must be upright for motion commands to produce wheel movement.
 
 ### Telemetry Frame (Robot → App, 11 bytes, ~10–20 Hz)
 
@@ -173,11 +182,11 @@ All values are **little-endian**. Fixed-size frames, no framing overhead needed 
 |---|---|---|---|---|
 | SEQ | uint8 | — | 0–255, wraps | Detects missed packets |
 | FLAGS | uint8 | bitfield | — | See below |
-| PITCH | int16 | × 0.01 ° | ±327 ° | Pitch angle from firmware |
-| SPEED_L | int16 | × 0.1 RPM | ±3276 RPM | Left wheel |
-| SPEED_R | int16 | × 0.1 RPM | ±3276 RPM | Right wheel |
-| DRIVE | int8 | /100.0 | −1.0 to +1.0 | Combined motor command |
-| BATT_MV | uint16 | mV | 0–65535 mV | Raw battery voltage |
+| PITCH | int16 | × 0.01 ° | ±327 ° | Pitch angle — real, from complementary filter |
+| SPEED_L | int16 | × 0.1 RPM | ±3276 RPM | Left wheel — real, from encoder |
+| SPEED_R | int16 | × 0.1 RPM | ±3276 RPM | Right wheel — real, from encoder |
+| DRIVE | int8 | /100.0 | −1.0 to +1.0 | Combined motor command *(stubbed = 0 in fw v4d)* |
+| BATT_MV | uint16 | mV | 0–65535 mV | Raw battery voltage *(stubbed = 7400 mV in fw v4d)* |
 
 **FLAGS bitfield:**
 
@@ -390,15 +399,12 @@ androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
 ---
 
-## Open Questions (decisions needed before coding)
+## Decisions (closed)
 
-| # | Question | Impact |
+| # | Question | Decision |
 |---|---|---|
-| Q1 | Does the firmware implement GATT server with the UUIDs defined here, or does the STM32 team define the UUIDs first? | GattProfile.kt |
-=> IDK, i use the only the basic bricks provide by STM32WBM55
-| Q2 | Is `distance_dm` (decimetres) sufficient resolution for Back-and-Forth, or should it be centimetres? | CommandEncoder, firmware |
-=> The odometrie distance is very precise, go in cm. From 1 to 100.
-| Q3 | Should telemetry continue when the app is in background (background BLE), or pause to save battery? | Service vs. bound service decision |
-=> Stop telemetry when app is backgrounded. If the user wants to monitor while the app is backgrounded, they can use a separate BLE sniffer app. The robot will continue to run the last command until the app reconnects and resumes telemetry.
-| Q4 | Target Compose chart library confirmed (Vico)? Other option: MPAndroidChart wrapper | Chart composable |
-=> IDK and i don't care
+| Q1 | Who defines the GATT UUIDs? | **Firmware defines them** — `robot_stm.c` implements the GATT server with the UUIDs in this doc. Confirmed working 2026-06-25. |
+| Q2 | Distance resolution for Back-and-Forth? | **Centimetres, 1–100 cm.** Rename `distance_dm` → `distance_cm` in CMD `0x05`. |
+| Q3 | Telemetry in background? | **Stop when backgrounded.** Robot holds last command; resumes telemetry on foreground. |
+| Q4 | Chart library? | **Not yet decided — defer to app developer.** Any chart widget that handles a 200-point ring buffer at 20 Hz is fine. |
+| Q5 | Platform? | **Flutter recommended** (Android + iOS from one codebase). Pure Android Kotlin remains a valid fallback. |

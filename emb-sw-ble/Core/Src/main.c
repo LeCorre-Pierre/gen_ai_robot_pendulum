@@ -31,6 +31,7 @@
 #include "fonts.h"
 #include "task_display.h"
 #include "task_sensors.h"
+#include "task_control.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -138,6 +139,9 @@ int main(void)
 
   /* IMU sensor task (real pitch angle) */
   Sensors_Init();
+
+  /* Balance control task (100 Hz cascade PID) */
+  Task_control_Init();
   /* USER CODE END 2 */
 
   /* Init code for STM32_WPAN */

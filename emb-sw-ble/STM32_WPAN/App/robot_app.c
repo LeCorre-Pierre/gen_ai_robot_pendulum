@@ -18,6 +18,8 @@
 #include "robot_stm.h"
 #include "robot_app.h"
 #include "task_sensors.h"
+#include "task_control.h"
+#include "motor_control.h"
 
 /* Telemetry FLAGS bitfield (see 10-android-app-architecture.md) */
 #define FLAG_BALANCE_ACTIVE   (1U << 0)
@@ -105,14 +107,19 @@ void Robot_STM_App_Notification(Robot_STM_App_Notification_evt_t *pNotification)
       switch (p[0])
       {
         case CMD_DRIVE:
-          APP_DBG_MSG("-- ROBOT APP : DRIVE speed=%d turn=%d\n\r",
-                      (len > 1) ? (int8_t)p[1] : 0,
-                      (len > 2) ? (int8_t)p[2] : 0);
+        {
+          int8_t s = (len > 1) ? (int8_t)p[1] : 0;
+          int8_t t = (len > 2) ? (int8_t)p[2] : 0;
+          Task_control_SetDrive(s / 100.0f, t / 100.0f);
+          APP_DBG_MSG("-- ROBOT APP : DRIVE speed=%d turn=%d\n\r", s, t);
           break;
+        }
         case CMD_EMERGENCY_STOP:
+          Task_control_EmergencyStop();
           APP_DBG_MSG("-- ROBOT APP : EMERGENCY_STOP\n\r");
           break;
         case CMD_RESUME:
+          Task_control_Resume();
           APP_DBG_MSG("-- ROBOT APP : RESUME\n\r");
           break;
         case CMD_DEMO_AUTO_SPIN:
@@ -147,11 +154,11 @@ void Robot_STM_App_Notification(Robot_STM_App_Notification_evt_t *pNotification)
 static void Build_Synthetic_Frame(uint8_t buf[11])
 {
   /* Step 4a: real pitch from the IMU; speeds/drive/battery wired in later steps. */
-  int16_t  pitch   = (int16_t)(Sensors_GetPitchDeg() * 100.0f); /* deg x100, real   */
-  int16_t  speed_l = 0;                                         /* encoders: step 4b */
-  int16_t  speed_r = 0;
+  int16_t  pitch   = (int16_t)(Sensors_GetPitchDeg() * 100.0f);       /* deg x100, real */
+  int16_t  speed_l = (int16_t)(MTR_GetCachedVelocityRPM(MTR_LEFT)  * 10.0f);  /* rpm x10 */
+  int16_t  speed_r = (int16_t)(MTR_GetCachedVelocityRPM(MTR_RIGHT) * 10.0f);  /* rpm x10 */
   int8_t   drive   = 0;
-  uint16_t batt_mv = 7400U;                                     /* ADC: later        */
+  uint16_t batt_mv = 7400U;                                           /* ADC: later     */
 
   buf[0]  = Robot_App_Context.seq++;
   buf[1]  = FLAG_BALANCE_ACTIVE;

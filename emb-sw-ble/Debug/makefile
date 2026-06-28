@@ -10,7 +10,9 @@ RM := rm -rf
 # All of the sources participating in the build are defined here
 -include sources.mk
 -include Utilities/lpm/tiny_lpm/subdir.mk
+-include Utilities/MotorControl/subdir.mk
 -include Utilities/LCD/subdir.mk
+-include Utilities/Control/subdir.mk
 -include Utilities/AngleEstimator/subdir.mk
 -include Startup/subdir.mk
 -include STM32_WPAN/Target/subdir.mk
@@ -30,6 +32,7 @@ RM := rm -rf
 -include Drivers/BSP/Components/ssd1315/subdir.mk
 -include Drivers/BSP/Components/ism330dhcx/subdir.mk
 -include Core/Src/subdir.mk
+-include App/Src/subdir.mk
 -include objects.mk
 
 ifneq ($(MAKECMDGOALS),clean)

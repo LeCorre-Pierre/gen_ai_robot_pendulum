@@ -22,6 +22,7 @@ C_DEPS :=
 
 # Every subdirectory with source files must be described here
 SUBDIRS := \
+App/Src \
 Core/Src \
 Drivers/BSP/Components/ism330dhcx \
 Drivers/BSP/Components/ssd1315 \
@@ -41,6 +42,8 @@ STM32_WPAN/App \
 STM32_WPAN/Target \
 Startup \
 Utilities/AngleEstimator \
+Utilities/Control \
 Utilities/LCD \
+Utilities/MotorControl \
 Utilities/lpm/tiny_lpm \
 

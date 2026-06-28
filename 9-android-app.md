@@ -1,14 +1,18 @@
-# Android App — Product Vision
+# Smartphone App — Product Vision
 
-An Android app controls the robot and serves as its primary human interface. It connects to the robot via BLE 5.2, leveraging the STM32WB5MMG integrated radio. No intermediary (Raspberry Pi, PC) is involved in the control path: the smartphone talks directly to the robot.
+> **Platform decision:** Flutter is the recommended implementation (see `10-android-app-architecture.md`). It covers Android and iOS from a single codebase. The requirements below are platform-agnostic; references to "Android" apply equally to iOS under Flutter.
 
-The app targets **Android 10 and above** (API level 29+), covering the vast majority of active Android devices. Portrait orientation is the primary layout; landscape is optional.
+A smartphone app controls the robot and serves as its primary human interface. It connects to the robot via BLE 5.2, leveraging the STM32WB5MMG integrated radio. No intermediary (Raspberry Pi, PC) is involved in the control path: the smartphone talks directly to the robot.
+
+**Firmware status (2026-06-25):** BLE GATT service fully implemented and verified. CMD_DRIVE, CMD_EMERGENCY_STOP and CMD_RESUME tested with nRF Connect. Telemetry notifications working at 20 Hz. Balance control loop active (step 4d).
+
+The app targets **Android 10 and above** (API level 29+) for the Android build; **iOS 14+** if built with Flutter.
 
 ---
 
 ## Connection
 
-The app scans for nearby BLE devices and presents a list filtered to the robot's advertised name. The user connects with a single tap. Once paired, the bond is remembered so subsequent sessions connect automatically without re-scanning.
+The app scans for nearby BLE devices and presents a list filtered to the robot's advertised name (**`RobotPend`**, confirmed in firmware). The user connects with a single tap. Once paired, the bond is remembered so subsequent sessions connect automatically without re-scanning.
 
 The connection status is always visible in the app (indicator in the header: Connected / Connecting / Disconnected). If the connection drops unexpectedly (robot out of range, battery low, robot fell), the app displays a clear alert and attempts to reconnect automatically with progressive back-off. The user can also trigger a manual reconnect.
 
@@ -41,6 +45,8 @@ Data is pushed from the robot to the app (BLE notifications); the app does not p
 ## Controls
 
 Three control modes are available, selectable from a toggle in the Control screen. Only one mode is active at a time.
+
+> **Firmware note:** CMD_DRIVE `speed` and `turn` bytes feed the cascade balance controller (not direct motor PWM). `speed` maps to a velocity setpoint (±30 RPM max), `turn` maps to a yaw rate setpoint (±90 °/s max). The robot must be balanced for drive commands to have visible effect.
 
 ### Virtual Joystick
 A thumb-sized on-screen joystick controls forward/backward speed (Y axis) and left/right turning (X axis). The joystick recenters on release, sending a zero-speed command. This is the default mode.
@@ -93,4 +99,4 @@ The following are explicitly deferred to a future version:
 - **Parameter tuning** (PID gains, control loop constants) — handled by the PC monitor app over USB/VCP in v1
 - **Firmware OTA update** — no BLE DFU in v1
 - **Multi-robot control** — single robot only
-- **iOS app** — Android only in v1; Flutter migration can enable iOS in v2 if the architecture is kept clean
+- **iOS native app** — covered automatically if Flutter is used (recommended)

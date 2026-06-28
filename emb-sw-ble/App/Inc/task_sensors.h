@@ -11,8 +11,9 @@
 extern "C" {
 #endif
 
-void  Sensors_Init(void);          /* creates the sensor task */
-float Sensors_GetPitchDeg(void);   /* latest estimated pitch in degrees */
+void  Sensors_Init(void);            /* creates the sensor task */
+float Sensors_GetPitchDeg(void);     /* latest estimated pitch in degrees */
+float Sensors_GetYawRateDps(void);   /* latest gyro_y reading (yaw rate) */
 
 #ifdef __cplusplus
 }
