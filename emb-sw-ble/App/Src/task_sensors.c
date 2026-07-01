@@ -15,23 +15,25 @@
 #include "stm32wb5mm_dk_motion_sensors.h"
 #include "task_sensors.h"
 
-#define SENSOR_PERIOD_MS   10U          /* 100 Hz */
-#define SENSOR_DT_S        0.010f
+#define SENSOR_PERIOD_MS   5U           /* 200 Hz — matches proven emb-sw loop */
+#define SENSOR_DT_S        0.005f
 
 static volatile float    g_pitch_deg   = 0.0f;
 static volatile float    g_yaw_dps     = 0.0f;
+static IMU_Data_t        g_imu;          /* latest raw sample, for VCP telemetry */
 static AngleEstimator_t  ae;
 
 static osThreadId_t SensorThreadId;
 static const osThreadAttr_t SensorProcess_attr =
 {
   .name       = "Sensors",
-  .priority   = osPriorityAboveNormal,
+  .priority   = osPriorityHigh,   /* producer: runs before Control each 5 ms tick */
   .stack_size = 1024U,
 };
 
 float Sensors_GetPitchDeg(void)    { return g_pitch_deg; }
 float Sensors_GetYawRateDps(void)  { return g_yaw_dps;   }
+void  Sensors_GetImu(IMU_Data_t *out) { if (out) { *out = g_imu; } }
 
 static void SensorProcess(void *argument)
 {
@@ -52,10 +54,14 @@ static void SensorProcess(void *argument)
 
     if (IMU_Read(&imu))
     {
+      g_imu = imu;
+      /* Gx NON négé : convention alignée sur emb-sw (« Il tient debout »,
+       * confirmé 2026-06-09). Un signe inversé faisait combattre le terme
+       * gyro contre le mouvement réel → estimation d'angle en retard. */
       g_pitch_deg = AngleEstimator_Update(&ae,
                                           -imu.accel_z_g,   /* tilt axis  */
                                            imu.accel_y_g,   /* vertical   */
-                                          -imu.gyro_x_dps,  /* pitch rate */
+                                           imu.gyro_x_dps,  /* pitch rate */
                                            SENSOR_DT_S);
       g_yaw_dps = imu.gyro_y_dps;
     }

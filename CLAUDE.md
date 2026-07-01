@@ -198,8 +198,9 @@ Identified via `tools/imu_viewer.py` with the robot physically moved. Do not cha
 
 `task_control.c` calls:
 ```c
-// Az et Gx négés : convention forward → pitch positif (confirmé 2026-05-26)
-AngleEstimator_Update(&ae, -imu.accel_z_g, imu.accel_y_g, -imu.gyro_x_dps, dt)
+// Az négé, Gx NON négé : convention forward → pitch positif (corrigé 2026-06-09)
+// (l'ancienne convention Gx négé était fausse — faisait retarder l'estimation)
+AngleEstimator_Update(&ae, -imu.accel_z_g, imu.accel_y_g, imu.gyro_x_dps, dt)
 CBC_Update(&cbc, ..., pitch_deg, ..., imu.gyro_y_dps)
 ```
 

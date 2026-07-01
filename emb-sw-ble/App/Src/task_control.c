@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    task_control.c
- * @brief   100 Hz balance control loop (step 4d).
+ * @brief   200 Hz balance control loop (step 4d).
  *
  *          - Reads pitch from task_sensors (Sensors_GetPitchDeg)
  *          - Reads wheel velocity from MTR_GetCachedVelocityRPM
@@ -20,8 +20,8 @@
 #include "motor_control.h"
 #include "cascade_balance_controller.h"
 
-#define CONTROL_PERIOD_MS   10U
-#define CONTROL_DT_S        0.010f
+#define CONTROL_PERIOD_MS   5U      /* 200 Hz — matches proven emb-sw loop */
+#define CONTROL_DT_S        0.005f
 
 #define TILT_CUTOFF_DEG     45.0f
 #define MAX_VEL_RPM         30.0f   /* max wheel speed the BLE drive command maps to */
@@ -40,13 +40,16 @@ static CascadeBalanceController_t s_cbc;
 
 static volatile float s_target_vel_rpm = 0.0f;
 static volatile float s_target_yaw_dps = 0.0f;
+static volatile float s_angle_sp_offset = 0.0f;   /* equilibrium trim (°), from VCP */
 static volatile uint8_t s_balance_active = 0U;
+
+static volatile ControlState_t s_state;           /* published each cycle for VCP */
 
 static osThreadId_t ControlThreadId;
 static const osThreadAttr_t ControlProcess_attr =
 {
     .name       = "Control",
-    .priority   = osPriorityHigh,
+    .priority   = osPriorityAboveNormal,   /* consumer: runs just after Sensors */
     .stack_size = 1024U,
 };
 
@@ -64,13 +67,28 @@ static void ControlProcess(void *argument)
         tick += CONTROL_PERIOD_MS;
         osDelayUntil(tick);
 
+        /* Refresh the cached wheel speed first, then read it, so the outer
+         * velocity loop uses the current measurement (not a cycle-old value). */
+        MTR_VelocityUpdate();
+
         float pitch_deg  = Sensors_GetPitchDeg();
         float yaw_dps    = Sensors_GetYawRateDps();
         float vel_l      = MTR_GetCachedVelocityRPM(MTR_LEFT);
         float vel_r      = MTR_GetCachedVelocityRPM(MTR_RIGHT);
         float vel_avg    = (vel_l + vel_r) * 0.5f;
 
-        MTR_VelocityUpdate();
+        /* Publish IMU + velocity part of the telemetry snapshot */
+        IMU_Data_t imu;
+        Sensors_GetImu(&imu);
+        s_state.pitch_deg  = pitch_deg;
+        s_state.accel_x_g  = imu.accel_x_g;
+        s_state.accel_y_g  = imu.accel_y_g;
+        s_state.accel_z_g  = imu.accel_z_g;
+        s_state.gyro_x_dps = imu.gyro_x_dps;
+        s_state.gyro_y_dps = imu.gyro_y_dps;
+        s_state.gyro_z_dps = imu.gyro_z_dps;
+        s_state.vel_l_rpm  = vel_l;
+        s_state.vel_r_rpm  = vel_r;
 
         /* Safety cut */
         float abs_pitch = pitch_deg >= 0.0f ? pitch_deg : -pitch_deg;
@@ -98,11 +116,18 @@ static void ControlProcess(void *argument)
         CascadeBalanceOutput_t out = CBC_Update(&s_cbc,
                                                 s_target_vel_rpm,
                                                 vel_avg,
-                                                pitch_deg,
+                                                pitch_deg - s_angle_sp_offset,
                                                 s_target_yaw_dps,
                                                 yaw_dps);
 
         MTR_SetDifferential(-out.left_output, -out.right_output);
+
+        /* Publish control outputs for VCP telemetry */
+        s_state.target_vel_rpm   = s_target_vel_rpm;
+        s_state.target_pitch_deg = out.target_pitch_deg;
+        s_state.drive_output     = out.drive_output;
+        s_state.left_output      = out.left_output;
+        s_state.right_output     = out.right_output;
     }
 }
 
@@ -136,6 +161,24 @@ void Task_control_SetBalanceGains(uint8_t loop_id, float kp, float ki, float kd)
     case 2U: CBC_SetYawTunings(&s_cbc, kp, ki, kd);      break;
     default: break;
     }
+}
+
+void Task_control_GetState(ControlState_t *out)
+{
+    if (out) { *out = s_state; }
+}
+
+void Task_control_SetVelocitySetpoint(float target_rpm)
+{
+    s_target_vel_rpm = target_rpm;
+    s_target_yaw_dps = 0.0f;
+}
+
+void Task_control_SetAngleOffset(float offset_deg)
+{
+    if (offset_deg >  5.0f) { offset_deg =  5.0f; }
+    if (offset_deg < -5.0f) { offset_deg = -5.0f; }
+    s_angle_sp_offset = offset_deg;
 }
 
 void Task_control_EmergencyStop(void)

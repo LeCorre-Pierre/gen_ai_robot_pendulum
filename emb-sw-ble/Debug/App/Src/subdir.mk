@@ -6,21 +6,27 @@
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
 ../App/Src/imu.c \
+../App/Src/task_comms.c \
 ../App/Src/task_control.c \
 ../App/Src/task_display.c \
-../App/Src/task_sensors.c 
+../App/Src/task_sensors.c \
+../App/Src/vcp_protocol.c 
 
 OBJS += \
 ./App/Src/imu.o \
+./App/Src/task_comms.o \
 ./App/Src/task_control.o \
 ./App/Src/task_display.o \
-./App/Src/task_sensors.o 
+./App/Src/task_sensors.o \
+./App/Src/vcp_protocol.o 
 
 C_DEPS += \
 ./App/Src/imu.d \
+./App/Src/task_comms.d \
 ./App/Src/task_control.d \
 ./App/Src/task_display.d \
-./App/Src/task_sensors.d 
+./App/Src/task_sensors.d \
+./App/Src/vcp_protocol.d 
 
 
 # Each subdirectory must supply rules for building sources it contributes
@@ -30,7 +36,7 @@ App/Src/%.o App/Src/%.su App/Src/%.cyclo: ../App/Src/%.c App/Src/subdir.mk
 clean: clean-App-2f-Src
 
 clean-App-2f-Src:
-	-$(RM) ./App/Src/imu.cyclo ./App/Src/imu.d ./App/Src/imu.o ./App/Src/imu.su ./App/Src/task_control.cyclo ./App/Src/task_control.d ./App/Src/task_control.o ./App/Src/task_control.su ./App/Src/task_display.cyclo ./App/Src/task_display.d ./App/Src/task_display.o ./App/Src/task_display.su ./App/Src/task_sensors.cyclo ./App/Src/task_sensors.d ./App/Src/task_sensors.o ./App/Src/task_sensors.su
+	-$(RM) ./App/Src/imu.cyclo ./App/Src/imu.d ./App/Src/imu.o ./App/Src/imu.su ./App/Src/task_comms.cyclo ./App/Src/task_comms.d ./App/Src/task_comms.o ./App/Src/task_comms.su ./App/Src/task_control.cyclo ./App/Src/task_control.d ./App/Src/task_control.o ./App/Src/task_control.su ./App/Src/task_display.cyclo ./App/Src/task_display.d ./App/Src/task_display.o ./App/Src/task_display.su ./App/Src/task_sensors.cyclo ./App/Src/task_sensors.d ./App/Src/task_sensors.o ./App/Src/task_sensors.su ./App/Src/vcp_protocol.cyclo ./App/Src/vcp_protocol.d ./App/Src/vcp_protocol.o ./App/Src/vcp_protocol.su
 
 .PHONY: clean-App-2f-Src
 

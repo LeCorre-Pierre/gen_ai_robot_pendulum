@@ -27,6 +27,7 @@
 #include "shci.h"
 #include "tl.h"
 #include "dbg_trace.h"
+#include "task_comms.h"   /* VCP_IsChannelActive() — USART1 channel arbitration */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -418,6 +419,14 @@ void DbgOutputInit( void )
 void DbgOutputTraces(  uint8_t *p_data, uint16_t size, void (*cb)(void) )
 {
 /* USER CODE BEGIN DbgOutputTraces */
+  /* USART1 (ST-Link VCP) is shared with the binary VCP telemetry. When VCP
+   * owns the channel, drop the trace but still release advtrace's buffer via
+   * cb() so its ring does not stall. */
+  if (VCP_IsChannelActive())
+  {
+    if (cb) { cb(); }
+    return;
+  }
   HW_UART_Transmit_DMA(CFG_DEBUG_TRACE_UART, p_data, size, cb);
 
 /* USER CODE END DbgOutputTraces */

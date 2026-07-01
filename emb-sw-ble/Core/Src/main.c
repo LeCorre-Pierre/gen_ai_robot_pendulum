@@ -32,6 +32,7 @@
 #include "task_display.h"
 #include "task_sensors.h"
 #include "task_control.h"
+#include "task_comms.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -140,8 +141,11 @@ int main(void)
   /* IMU sensor task (real pitch angle) */
   Sensors_Init();
 
-  /* Balance control task (100 Hz cascade PID) */
+  /* Balance control task (200 Hz cascade PID) */
   Task_control_Init();
+
+  /* VCP telemetry / tuning task (shares ST-Link VCP with BLE debug trace) */
+  Task_comms_Init();
   /* USER CODE END 2 */
 
   /* Init code for STM32_WPAN */
